@@ -17,12 +17,19 @@ function normalizePhone(raw: string): string {
 // Processa a mensagem em background (não bloqueia o 200 OK)
 async function processIncoming(body: Record<string, unknown>) {
   try {
+    console.log('[webhook] recebido:', JSON.stringify(body, null, 2))
+
     const event = body.event as string
+    console.log('[webhook] event:', event)
     if (event !== 'messages.upsert') return
 
     const data    = body.data    as Record<string, unknown>
     const key     = data?.key    as Record<string, unknown>
     const fromMe  = key?.fromMe  as boolean
+
+    console.log('[webhook] fromMe:', fromMe)
+    console.log('[webhook] remoteJid:', key?.remoteJid)
+    console.log('[webhook] message:', data?.message)
 
     if (fromMe) return
 
@@ -43,6 +50,7 @@ async function processIncoming(body: Record<string, unknown>) {
 
     // Buscar lead pelo phone: comparar últimos 11 dígitos (sem DDI)
     const phone11 = normalizePhone(rawPhone).slice(-11)
+    console.log('[webhook] número extraído (phone11):', phone11)
 
     const { data: leadsFound } = await supabase
       .from('leads')
@@ -54,6 +62,8 @@ async function processIncoming(body: Record<string, unknown>) {
       const lp = String(l.phone ?? '').replace(/\D/g, '').slice(-11)
       return lp === phone11
     })
+
+    console.log('[webhook] lead encontrado:', lead ? lead.id : 'NÃO ENCONTRADO')
 
     if (!lead) {
       console.log('[webhook] lead não encontrado para phone:', rawPhone)
