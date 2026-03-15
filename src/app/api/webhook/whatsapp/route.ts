@@ -117,6 +117,8 @@ async function processIncoming(body: Record<string, unknown>) {
 
 // POST /api/webhook/whatsapp
 export async function POST(req: NextRequest) {
+  console.log('[webhook] INICIO - recebido request')
+
   let body: Record<string, unknown>
   try {
     body = await req.json()
