@@ -3,16 +3,19 @@
 import { useState, useRef, useEffect } from 'react'
 import {
   AlertTriangle, Bot, Camera, CheckCircle, CheckCircle2, ClipboardCopy,
-  Loader2, MessageSquare, Save, Send, ShoppingBag, Wand2, Webhook, XCircle,
+  Loader2, MessageSquare, Phone, Plus, Save, Send, ShoppingBag, Trash2,
+  Wand2, Webhook, XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge }     from '@/components/ui/badge'
 import { Button }    from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input }     from '@/components/ui/input'
 import { Label }     from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { Switch }    from '@/components/ui/switch'
 import { Textarea }  from '@/components/ui/textarea'
 
 // ─── tipos ────────────────────────────────────────────────────────────────────
@@ -80,13 +83,14 @@ const PROMPT_VARS_AGENT: string[] = [
 // ─── seções da sidebar ────────────────────────────────────────────────────────
 
 const SECTIONS = [
-  { id: 'service',    label: 'Serviço & Vendas',    Icon: ShoppingBag,   description: 'Preço, entrega e pagamento'    },
-  { id: 'agent',      label: 'Agente IA',            Icon: Bot,           description: 'Nome, personalidade e objetivo' },
-  { id: 'prompts',    label: 'Prompts IA',           Icon: Wand2,         description: 'Prompts de mensagens'          },
-  { id: 'dispatch',   label: 'Disparo',              Icon: MessageSquare, description: 'Limites e horários'            },
-  { id: 'whatsapp',   label: 'WhatsApp',             Icon: Webhook,       description: 'Evolution API'                },
-  { id: 'screenshot', label: 'Screenshot',           Icon: Camera,        description: 'ScreenshotOne API'            },
-  { id: 'simulator',  label: 'Simulador',            Icon: MessageSquare, description: 'Teste o agente ao vivo'       },
+  { id: 'service',      label: 'Serviço & Vendas',    Icon: ShoppingBag,   description: 'Preço, entrega e pagamento'    },
+  { id: 'agent',        label: 'Agente IA',            Icon: Bot,           description: 'Nome, personalidade e objetivo' },
+  { id: 'prompts',      label: 'Prompts IA',           Icon: Wand2,         description: 'Prompts de mensagens'          },
+  { id: 'dispatch',     label: 'Disparo',              Icon: MessageSquare, description: 'Limites e horários'            },
+  { id: 'whatsapp',     label: 'WhatsApp',             Icon: Webhook,       description: 'Evolution API'                },
+  { id: 'screenshot',   label: 'Screenshot',           Icon: Camera,        description: 'ScreenshotOne API'            },
+  { id: 'test_numbers', label: 'Números de Teste',     Icon: Phone,         description: 'Chat manual via Evolution'    },
+  { id: 'simulator',    label: 'Simulador',            Icon: MessageSquare, description: 'Teste o agente ao vivo'       },
 ] as const
 
 type SectionId = typeof SECTIONS[number]['id']
@@ -528,16 +532,288 @@ function ScreenshotSection({ values, onChange }: { values: SettingsMap; onChange
   )
 }
 
-// ─── seção Simulador (full-area, sem card wrapper) ────────────────────────────
+// ─── seção Números de Teste ───────────────────────────────────────────────────
 
-type ChatMsg = { from: 'ana' | 'lead'; text: string }
+interface TestNumber {
+  id:     string
+  name:   string
+  phone:  string
+  active: boolean
+}
+
+type ChatMsg = { from: 'agent' | 'contact'; text: string }
+
+function TestNumberChat({ contact, onClose }: { contact: TestNumber; onClose: () => void }) {
+  const [msgs,    setMsgs]    = useState<ChatMsg[]>([])
+  const [text,    setText]    = useState('')
+  const [sending, setSending] = useState(false)
+  const feedRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight
+  }, [msgs])
+
+  async function handleSend() {
+    const msg = text.trim()
+    if (!msg || sending) return
+    setText('')
+    setMsgs((prev) => [...prev, { from: 'agent', text: msg }])
+    setSending(true)
+    try {
+      const res = await fetch('/api/test/send-message', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ to: contact.phone, message: msg }),
+      })
+      const data: { ok?: boolean; error?: string } = await res.json()
+      if (!data.ok) throw new Error(data.error ?? 'Erro ao enviar')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+      setText(msg)
+      setMsgs((prev) => prev.slice(0, -1))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-md" style={{ height: '520px' }}>
+        <DialogHeader className="shrink-0 border-b px-4 py-3">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+              {contact.name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <DialogTitle className="text-sm font-semibold">{contact.name}</DialogTitle>
+              <p className="font-mono text-[11px] text-muted-foreground">{contact.phone}</p>
+            </div>
+          </div>
+        </DialogHeader>
+
+        {/* feed */}
+        <div
+          ref={feedRef}
+          className="flex flex-1 flex-col gap-2 overflow-y-auto bg-muted/20 p-3"
+        >
+          {msgs.length === 0 && (
+            <p className="text-center text-xs text-muted-foreground pt-4">
+              Nenhuma mensagem ainda. Escreva abaixo para enviar.
+            </p>
+          )}
+          {msgs.map((m, i) => (
+            <div key={i} className={`flex ${m.from === 'agent' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                m.from === 'agent'
+                  ? 'rounded-tr-sm bg-primary text-primary-foreground'
+                  : 'rounded-tl-sm border bg-card text-foreground'
+              }`}>
+                <p style={{ whiteSpace: 'pre-wrap' }}>{m.text}</p>
+              </div>
+            </div>
+          ))}
+          {sending && (
+            <div className="flex justify-end">
+              <div className="rounded-2xl rounded-tr-sm bg-primary/60 px-3 py-2">
+                <Loader2 className="h-3 w-3 animate-spin text-primary-foreground" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* input */}
+        <div className="shrink-0 flex gap-2 border-t p-3">
+          <Input
+            autoFocus
+            placeholder="Mensagem…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+            disabled={sending}
+            className="text-sm"
+          />
+          <Button size="sm" onClick={handleSend} disabled={sending || !text.trim()} className="shrink-0">
+            <Send className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function TestNumbersSection() {
+  const [numbers,  setNumbers]  = useState<TestNumber[]>([])
+  const [loading,  setLoading]  = useState(true)
+  const [newName,  setNewName]  = useState('')
+  const [newPhone, setNewPhone] = useState('')
+  const [adding,   setAdding]   = useState(false)
+  const [chatWith, setChatWith] = useState<TestNumber | null>(null)
+
+  useEffect(() => { loadNumbers() }, [])
+
+  async function loadNumbers() {
+    setLoading(true)
+    try {
+      const res  = await fetch('/api/test/numbers')
+      const data: { numbers?: TestNumber[]; error?: string } = await res.json()
+      if (data.error) throw new Error(data.error)
+      setNumbers(data.numbers ?? [])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleAdd() {
+    if (!newName.trim() || !newPhone.trim()) return
+    setAdding(true)
+    try {
+      const res  = await fetch('/api/test/numbers', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ name: newName.trim(), phone: newPhone.trim() }),
+      })
+      const data: { number?: TestNumber; error?: string } = await res.json()
+      if (data.error) throw new Error(data.error)
+      setNumbers((prev) => [...prev, data.number!])
+      setNewName('')
+      setNewPhone('')
+      toast.success('Número adicionado.')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  async function handleToggle(id: string, active: boolean) {
+    setNumbers((prev) => prev.map((n) => n.id === id ? { ...n, active } : n))
+    await fetch(`/api/test/numbers/${id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ active }),
+    })
+  }
+
+  async function handleDelete(id: string) {
+    setNumbers((prev) => prev.filter((n) => n.id !== id))
+    await fetch(`/api/test/numbers/${id}`, { method: 'DELETE' })
+    toast.success('Número removido.')
+  }
+
+  return (
+    <>
+      {chatWith && <TestNumberChat contact={chatWith} onClose={() => setChatWith(null)} />}
+
+      <Card className="rounded-2xl shadow-sm">
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <Phone className="h-4 w-4" />
+            </span>
+            <div>
+              <CardTitle className="text-sm font-semibold">Números de Teste</CardTitle>
+              <CardDescription className="text-xs">Envio manual direto via Evolution API, sem IA.</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <Separator />
+        <CardContent className="flex flex-col gap-5 pt-5">
+
+          {/* lista */}
+          {loading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : numbers.length === 0 ? (
+            <p className="text-center text-xs text-muted-foreground py-4">Nenhum número cadastrado.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {numbers.map((n) => (
+                <div key={n.id} className="flex items-center gap-3 rounded-xl border bg-muted/20 px-3 py-2.5">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                    {n.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <p className="truncate text-sm font-medium">{n.name}</p>
+                    <p className="font-mono text-xs text-muted-foreground">{n.phone}</p>
+                  </div>
+                  <Switch
+                    checked={n.active}
+                    onCheckedChange={(v) => handleToggle(n.id, v)}
+                    aria-label="Ativar/desativar"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!n.active}
+                    onClick={() => setChatWith(n)}
+                    className="shrink-0 gap-1.5"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    Chat
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleDelete(n.id)}
+                    className="shrink-0 text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <Separator />
+
+          {/* formulário de adição */}
+          <div className="flex flex-col gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Adicionar número</p>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Nome"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className="text-sm"
+              />
+              <Input
+                placeholder="Telefone (ex: 11959356529)"
+                value={newPhone}
+                onChange={(e) => setNewPhone(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAdd() }}
+                className="font-mono text-sm"
+              />
+              <Button
+                size="sm"
+                onClick={handleAdd}
+                disabled={adding || !newName.trim() || !newPhone.trim()}
+                className="shrink-0 gap-1.5"
+              >
+                {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                Adicionar
+              </Button>
+            </div>
+          </div>
+
+        </CardContent>
+      </Card>
+    </>
+  )
+}
+
+// ─── seção Simulador (full-area, sem card wrapper) ────────────────────────────
 
 interface ConversationSession {
   leadId:  string
   company: string
-  msgs:    ChatMsg[]
+  msgs:    SimChatMsg[]
   handoff: boolean
 }
+
+type SimChatMsg = { from: 'ana' | 'lead'; text: string }
 
 function SimulatorSection() {
   const [number,   setNumber]   = useState('')
@@ -582,7 +858,7 @@ function SimulatorSection() {
     if (!session || !reply.trim() || session.handoff) return
     const text = reply.trim()
     setReply('')
-    const updatedMsgs: ChatMsg[] = [...session.msgs, { from: 'lead', text }]
+    const updatedMsgs: SimChatMsg[] = [...session.msgs, { from: 'lead', text }]
     setSession((prev) => prev ? { ...prev, msgs: updatedMsgs } : null)
     setSending(true)
     try {
@@ -809,6 +1085,10 @@ export function SettingsForm({ initialValues }: SettingsFormProps) {
 
         {activeSection === 'screenshot' && (
           <ScreenshotSection values={values} onChange={onChange} />
+        )}
+
+        {activeSection === 'test_numbers' && (
+          <TestNumbersSection />
         )}
 
         {activeSection === 'simulator' && (
