@@ -541,23 +541,48 @@ interface TestNumber {
   active: boolean
 }
 
-type ChatMsg = { from: 'agent' | 'contact'; text: string }
+interface TestMessage {
+  id:         string
+  phone:      string
+  direction:  'inbound' | 'outbound'
+  content:    string
+  created_at: string
+}
 
 function TestNumberChat({ contact, onClose }: { contact: TestNumber; onClose: () => void }) {
-  const [msgs,    setMsgs]    = useState<ChatMsg[]>([])
+  const [msgs,    setMsgs]    = useState<TestMessage[]>([])
   const [text,    setText]    = useState('')
   const [sending, setSending] = useState(false)
-  const feedRef = useRef<HTMLDivElement>(null)
+  const feedRef    = useRef<HTMLDivElement>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const userScrolled = useRef(false)
+
+  // Scroll automático apenas se o usuário não scrollou para cima
+  useEffect(() => {
+    const el = feedRef.current
+    if (!el || userScrolled.current) return
+    el.scrollTop = el.scrollHeight
+  }, [msgs])
+
+  async function fetchMessages() {
+    const phone11 = contact.phone.replace(/\D/g, '').slice(-11)
+    const res = await fetch(`/api/test/messages?phone=${phone11}`)
+    if (!res.ok) return
+    const data: { messages?: TestMessage[] } = await res.json()
+    if (data.messages) setMsgs(data.messages)
+  }
 
   useEffect(() => {
-    if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight
-  }, [msgs])
+    fetchMessages()
+    intervalRef.current = setInterval(fetchMessages, 2000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contact.phone])
 
   async function handleSend() {
     const msg = text.trim()
     if (!msg || sending) return
     setText('')
-    setMsgs((prev) => [...prev, { from: 'agent', text: msg }])
     setSending(true)
     try {
       const res = await fetch('/api/test/send-message', {
@@ -567,10 +592,11 @@ function TestNumberChat({ contact, onClose }: { contact: TestNumber; onClose: ()
       })
       const data: { ok?: boolean; error?: string } = await res.json()
       if (!data.ok) throw new Error(data.error ?? 'Erro ao enviar')
+      userScrolled.current = false
+      await fetchMessages()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
       setText(msg)
-      setMsgs((prev) => prev.slice(0, -1))
     } finally {
       setSending(false)
     }
@@ -594,6 +620,11 @@ function TestNumberChat({ contact, onClose }: { contact: TestNumber; onClose: ()
         {/* feed */}
         <div
           ref={feedRef}
+          onScroll={() => {
+            const el = feedRef.current
+            if (!el) return
+            userScrolled.current = el.scrollTop < el.scrollHeight - el.clientHeight - 40
+          }}
           className="flex flex-1 flex-col gap-2 overflow-y-auto bg-muted/20 p-3"
         >
           {msgs.length === 0 && (
@@ -601,21 +632,21 @@ function TestNumberChat({ contact, onClose }: { contact: TestNumber; onClose: ()
               Nenhuma mensagem ainda. Escreva abaixo para enviar.
             </p>
           )}
-          {msgs.map((m, i) => (
-            <div key={i} className={`flex ${m.from === 'agent' ? 'justify-end' : 'justify-start'}`}>
+          {msgs.map((m) => (
+            <div key={m.id} className={`flex ${m.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
-                m.from === 'agent'
-                  ? 'rounded-tr-sm bg-primary text-primary-foreground'
+                m.direction === 'outbound'
+                  ? 'rounded-tr-sm bg-green-600 text-white'
                   : 'rounded-tl-sm border bg-card text-foreground'
               }`}>
-                <p style={{ whiteSpace: 'pre-wrap' }}>{m.text}</p>
+                <p style={{ whiteSpace: 'pre-wrap' }}>{m.content}</p>
               </div>
             </div>
           ))}
           {sending && (
             <div className="flex justify-end">
-              <div className="rounded-2xl rounded-tr-sm bg-primary/60 px-3 py-2">
-                <Loader2 className="h-3 w-3 animate-spin text-primary-foreground" />
+              <div className="rounded-2xl rounded-tr-sm bg-green-600/60 px-3 py-2">
+                <Loader2 className="h-3 w-3 animate-spin text-white" />
               </div>
             </div>
           )}

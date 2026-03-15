@@ -82,6 +82,34 @@ async function processIncoming(body: Record<string, unknown>) {
       console.log('[webhook] phones no banco:', (leadsFound ?? []).map((l) => String(l.phone ?? '').replace(/\D/g, '').slice(-11)))
     }
 
+    // ── Verificar se é número de teste e salvar mensagem ─────────────────────
+    const msgData = data?.message as Record<string, unknown> | null
+    const text = (
+      (msgData?.conversation as string) ??
+      ((msgData?.extendedTextMessage as Record<string, unknown>)?.text as string) ??
+      ''
+    ).trim()
+
+    if (text) {
+      const { data: testNums } = await supabase
+        .from('test_numbers')
+        .select('id, phone')
+        .not('phone', 'is', null)
+
+      const matchedTest = (testNums ?? []).find((n: { phone: string }) => {
+        return String(n.phone ?? '').replace(/\D/g, '').slice(-11) === phoneNumber
+      })
+
+      if (matchedTest) {
+        console.log('[webhook] número de teste — salvando mensagem inbound')
+        await supabase.from('test_messages').insert({
+          phone:     phoneNumber,
+          direction: 'inbound',
+          content:   text,
+        })
+      }
+    }
+
   } catch (err) {
     console.error('[webhook] erro:', err instanceof Error ? err.message : err)
   }
