@@ -161,7 +161,16 @@ export async function POST(req: NextRequest) {
               throw new Error(`Evolution API: ${evolutionRes.status} — ${errText}`)
             }
 
-            // 3e. Save message
+            // 3e. Salvar lid_jid retornado pela Evolution (para identificar @lid no webhook)
+            try {
+              const evoData = await evolutionRes.clone().json()
+              const lidJid  = evoData?.key?.remoteJid as string | undefined
+              if (lidJid) {
+                await supabase.from('leads').update({ lid_jid: lidJid }).eq('id', lead.id)
+              }
+            } catch { /* ignorar — não crítico */ }
+
+            // 3f. Save message
             await supabase.from('messages').insert({
               lead_id:   lead.id,
               direction: 'outbound',
