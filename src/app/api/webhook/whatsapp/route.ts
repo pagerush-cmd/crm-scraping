@@ -24,42 +24,16 @@ async function processIncoming(body: Record<string, unknown>) {
 
     console.log('[webhook] fromMe:', fromMe)
     console.log('[webhook] remoteJid:', key?.remoteJid)
-    console.log('[webhook] message:', data?.message)
+    console.log('[webhook] participant:', data?.participant)
+    console.log('[webhook] body.data completo:', JSON.stringify(data, null, 2))
 
     if (fromMe) return
 
-    const remoteJid: string = String(key?.remoteJid ?? '')
-    const sender:    string = String(body.sender    ?? '')
+    const remoteJid:   string = String(key?.remoteJid   ?? '')
+    const participant: string = String(data?.participant ?? '')
 
     // Ignorar grupos
     if (remoteJid.endsWith('@g.us')) return
-
-    // ── Extrair número do lead ───────────────────────────────────────────────
-    // remoteJid pode vir em dois formatos:
-    //   • "5511959356529@s.whatsapp.net" → número real
-    //   • "210986124488877@lid"          → ID interno do WhatsApp Business
-    // Se for @lid, usar o campo sender (que sempre vem como número real)
-
-    let rawPhone: string
-
-    if (remoteJid.includes('@s.whatsapp.net')) {
-      rawPhone = remoteJid.replace('@s.whatsapp.net', '')
-    } else if (remoteJid.includes('@lid')) {
-      console.log('[webhook] remoteJid é @lid — usando sender:', sender)
-      rawPhone = sender.replace('@s.whatsapp.net', '')
-    } else {
-      console.log('[webhook] formato de remoteJid desconhecido:', remoteJid)
-      return
-    }
-
-    // Normalizar: só dígitos, 11 dígitos sem DDI para comparação
-    const digitsRaw = rawPhone.replace(/\D/g, '')
-    // Remove o DDI 55 se vier com 13 dígitos (55 + 2 DDD + 9 número)
-    const phone11 = digitsRaw.length === 13 && digitsRaw.startsWith('55')
-      ? digitsRaw.slice(2)
-      : digitsRaw.slice(-11)
-
-    console.log('[webhook] phoneNumber final (phone11):', phone11)
 
     // Extrair texto da mensagem (vários formatos possíveis)
     const msgObj = data?.message as Record<string, unknown> | null
@@ -73,23 +47,99 @@ async function processIncoming(body: Record<string, unknown>) {
 
     const supabase = createServiceClient()
 
-    // Buscar todos os leads contactados e comparar últimos 11 dígitos
-    const { data: leadsFound } = await supabase
-      .from('leads')
-      .select('id, phone, outreach_status, status')
-      .neq('outreach_status', 'new')
-      .not('phone', 'is', null)
+    // ── Identificar lead ─────────────────────────────────────────────────────
+    // remoteJid pode vir em dois formatos:
+    //   • "5511959356529@s.whatsapp.net" → número real
+    //   • "210986124488877@lid"          → ID interno do WhatsApp Business
 
-    const lead = (leadsFound ?? []).find((l) => {
-      const lp = String(l.phone ?? '').replace(/\D/g, '').slice(-11)
-      return lp === phone11
-    })
+    type LeadRow = { id: string; phone: string | null; outreach_status: string; status: string; lid_jid?: string | null }
+    let lead: LeadRow | undefined
+    let digitsRaw = ''
+
+    if (remoteJid.includes('@s.whatsapp.net')) {
+      // ── Formato normal: extrai número e busca por phone ──────────────────
+      const raw = remoteJid.replace('@s.whatsapp.net', '')
+      digitsRaw  = raw.replace(/\D/g, '')
+      const phone11 = digitsRaw.length === 13 && digitsRaw.startsWith('55')
+        ? digitsRaw.slice(2)
+        : digitsRaw.slice(-11)
+
+      console.log('[webhook] phoneNumber final (phone11):', phone11)
+
+      const { data: leadsFound } = await supabase
+        .from('leads')
+        .select('id, phone, outreach_status, status')
+        .neq('outreach_status', 'new')
+        .not('phone', 'is', null)
+
+      lead = (leadsFound ?? [] as LeadRow[]).find((l) => {
+        const lp = String(l.phone ?? '').replace(/\D/g, '').slice(-11)
+        return lp === phone11
+      })
+
+    } else if (remoteJid.includes('@lid')) {
+      // ── Formato @lid: buscar pelo lid_jid salvo na tabela leads ──────────
+      console.log('[webhook] remoteJid é @lid:', remoteJid)
+      console.log('[webhook] participant:', participant)
+
+      // 1. Tentar pelo lid_jid salvo
+      const { data: byLid } = await supabase
+        .from('leads')
+        .select('id, phone, outreach_status, status, lid_jid')
+        .eq('lid_jid', remoteJid)
+        .neq('outreach_status', 'new')
+        .maybeSingle()
+
+      if (byLid) {
+        lead      = byLid as LeadRow
+        digitsRaw = String(byLid.phone ?? '').replace(/\D/g, '')
+        console.log('[webhook] lead encontrado pelo lid_jid:', lead.id)
+      } else {
+        // 2. Se participant tiver número real, tentar por phone
+        if (participant.includes('@s.whatsapp.net')) {
+          const raw  = participant.replace('@s.whatsapp.net', '')
+          digitsRaw  = raw.replace(/\D/g, '')
+          const phone11 = digitsRaw.length === 13 && digitsRaw.startsWith('55')
+            ? digitsRaw.slice(2)
+            : digitsRaw.slice(-11)
+
+          console.log('[webhook] tentando por participant phone11:', phone11)
+
+          const { data: leadsFound } = await supabase
+            .from('leads')
+            .select('id, phone, outreach_status, status')
+            .neq('outreach_status', 'new')
+            .not('phone', 'is', null)
+
+          lead = (leadsFound ?? [] as LeadRow[]).find((l) => {
+            const lp = String(l.phone ?? '').replace(/\D/g, '').slice(-11)
+            return lp === phone11
+          })
+
+          // Se encontrou, salvar o lid_jid para próximas mensagens
+          if (lead) {
+            await supabase
+              .from('leads')
+              .update({ lid_jid: remoteJid })
+              .eq('id', lead.id)
+              .then(({ error }) => { if (error) console.warn('[webhook] falha ao salvar lid_jid:', error) })
+          }
+        } else {
+          console.log('[webhook] @lid sem participant — não foi possível identificar o lead')
+          console.log('[webhook] data keys:', Object.keys(data ?? {}))
+          return
+        }
+      }
+    } else {
+      console.log('[webhook] formato de remoteJid desconhecido:', remoteJid)
+      return
+    }
 
     console.log('[webhook] lead encontrado:', lead ? lead.id : 'NÃO ENCONTRADO')
     console.log('[webhook] lead phone:', lead?.phone ?? '—')
 
     if (!lead) {
-      console.log('[webhook] lead não encontrado para phone11:', phone11, '| rawPhone:', rawPhone)
+      console.log('[webhook] lead não encontrado')
       return
     }
 
