@@ -9,11 +9,6 @@ function createServiceClient() {
   )
 }
 
-function normalizePhone(raw: string): string {
-  const digits = raw.replace(/\D/g, '')
-  return digits.startsWith('55') ? digits : `55${digits}`
-}
-
 // Processa a mensagem em background (não bloqueia o 200 OK)
 async function processIncoming(body: Record<string, unknown>) {
   try {
@@ -34,7 +29,37 @@ async function processIncoming(body: Record<string, unknown>) {
     if (fromMe) return
 
     const remoteJid: string = String(key?.remoteJid ?? '')
-    const rawPhone  = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
+    const sender:    string = String(body.sender    ?? '')
+
+    // Ignorar grupos
+    if (remoteJid.endsWith('@g.us')) return
+
+    // ── Extrair número do lead ───────────────────────────────────────────────
+    // remoteJid pode vir em dois formatos:
+    //   • "5511959356529@s.whatsapp.net" → número real
+    //   • "210986124488877@lid"          → ID interno do WhatsApp Business
+    // Se for @lid, usar o campo sender (que sempre vem como número real)
+
+    let rawPhone: string
+
+    if (remoteJid.includes('@s.whatsapp.net')) {
+      rawPhone = remoteJid.replace('@s.whatsapp.net', '')
+    } else if (remoteJid.includes('@lid')) {
+      console.log('[webhook] remoteJid é @lid — usando sender:', sender)
+      rawPhone = sender.replace('@s.whatsapp.net', '')
+    } else {
+      console.log('[webhook] formato de remoteJid desconhecido:', remoteJid)
+      return
+    }
+
+    // Normalizar: só dígitos, 11 dígitos sem DDI para comparação
+    const digitsRaw = rawPhone.replace(/\D/g, '')
+    // Remove o DDI 55 se vier com 13 dígitos (55 + 2 DDD + 9 número)
+    const phone11 = digitsRaw.length === 13 && digitsRaw.startsWith('55')
+      ? digitsRaw.slice(2)
+      : digitsRaw.slice(-11)
+
+    console.log('[webhook] phoneNumber final (phone11):', phone11)
 
     // Extrair texto da mensagem (vários formatos possíveis)
     const msgObj = data?.message as Record<string, unknown> | null
@@ -44,14 +69,11 @@ async function processIncoming(body: Record<string, unknown>) {
       ''
     ).trim()
 
-    if (!text || rawPhone.endsWith('@g.us') || remoteJid.endsWith('@g.us')) return
+    if (!text) return
 
     const supabase = createServiceClient()
 
-    // Buscar lead pelo phone: comparar últimos 11 dígitos (sem DDI)
-    const phone11 = normalizePhone(rawPhone).slice(-11)
-    console.log('[webhook] número extraído (phone11):', phone11)
-
+    // Buscar todos os leads contactados e comparar últimos 11 dígitos
     const { data: leadsFound } = await supabase
       .from('leads')
       .select('id, phone, outreach_status, status')
@@ -64,9 +86,10 @@ async function processIncoming(body: Record<string, unknown>) {
     })
 
     console.log('[webhook] lead encontrado:', lead ? lead.id : 'NÃO ENCONTRADO')
+    console.log('[webhook] lead phone:', lead?.phone ?? '—')
 
     if (!lead) {
-      console.log('[webhook] lead não encontrado para phone:', rawPhone)
+      console.log('[webhook] lead não encontrado para phone11:', phone11, '| rawPhone:', rawPhone)
       return
     }
 
@@ -148,8 +171,8 @@ async function processIncoming(body: Record<string, unknown>) {
       return
     }
 
-    // Enviar resposta via Evolution
-    const targetPhone = normalizePhone(rawPhone)
+    // Enviar resposta via Evolution (sempre com DDI 55)
+    const targetPhone = digitsRaw.startsWith('55') ? digitsRaw : `55${digitsRaw}`
     const evoRes = await fetch(`${evolutionUrl}/message/sendText/${evolutionInstance}`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
