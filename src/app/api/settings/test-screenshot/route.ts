@@ -4,7 +4,7 @@ import { takeScreenshot } from '@/lib/screenshot'
 export async function GET() {
   try {
     const imageBytes = await takeScreenshot('https://www.google.com')
-    return new NextResponse(imageBytes, {
+    return new NextResponse(new Uint8Array(imageBytes), {
       headers: { 'Content-Type': 'image/jpeg' },
     })
   } catch (err) {
