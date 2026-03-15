@@ -31,6 +31,7 @@ interface AnalysisResult {
   total_tokens:  number
   cost_usd:      number
   time_ms:       number
+  fetch_ms?:     number
   result:        unknown
 }
 
