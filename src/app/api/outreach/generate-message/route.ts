@@ -111,22 +111,35 @@ export async function POST(req: NextRequest) {
       const evolutionKey      = s.evolution_api_key      ?? process.env.EVOLUTION_API_KEY      ?? ''
       const evolutionInstance = s.evolution_instance_name ?? process.env.EVOLUTION_INSTANCE_NAME ?? ''
 
-      if (evolutionUrl && evolutionKey && evolutionInstance) {
-        await fetch(`${evolutionUrl}/message/sendText/${evolutionInstance}`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
-          body:    JSON.stringify({ number: normalizePhone(test_number), text: message }),
-        }).catch(() => {/* non-fatal */})
-      }
+      const phone11 = normalizePhone(test_number).slice(-11)
 
       // Registrar phone em test_numbers para o webhook processar replies do WA
-      const phone11 = normalizePhone(test_number).slice(-11)
       const { data: existingNum } = await supabase.from('test_numbers').select('id').eq('phone', phone11).maybeSingle()
       if (!existingNum) {
         const { error: insertErr } = await supabase.from('test_numbers').insert({ phone: phone11, name: 'Simulador', active: true })
         console.log('[generate-message] insert test_numbers:', insertErr ?? 'ok')
       } else {
         console.log('[generate-message] test_numbers já existe para:', phone11)
+      }
+
+      if (evolutionUrl && evolutionKey && evolutionInstance) {
+        const evoRes = await fetch(`${evolutionUrl}/message/sendText/${evolutionInstance}`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', apikey: evolutionKey },
+          body:    JSON.stringify({ number: normalizePhone(test_number), text: message }),
+        }).catch(() => null)
+
+        // Salvar lid_jid retornado pela Evolution para o webhook resolver @lid do Android
+        if (evoRes?.ok) {
+          try {
+            const evoData = await evoRes.json()
+            const lidJid = evoData?.key?.remoteJid as string | undefined
+            console.log('[generate-message] lidJid:', lidJid)
+            if (lidJid) {
+              await supabase.from('test_numbers').update({ lid_jid: lidJid }).eq('phone', phone11)
+            }
+          } catch { /* non-fatal */ }
+        }
       }
 
       // Salvar outbound em test_messages para polling do simulador
