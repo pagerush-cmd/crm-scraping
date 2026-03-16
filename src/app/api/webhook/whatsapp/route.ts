@@ -252,13 +252,14 @@ async function processIncoming(body: Record<string, unknown>) {
       const leadId = String(matchedLead.id)
 
       // Salvar inbound
-      await supabase.from('messages').insert({
+      const { error: inboundErr } = await supabase.from('messages').insert({
         lead_id:   leadId,
         direction: 'inbound',
         channel:   'whatsapp',
         content:   text,
         status:    'received',
       })
+      if (inboundErr) console.error('[webhook] messages inbound insert error:', inboundErr.message)
 
       // Atualizar status do lead
       const currentStatus = String(matchedLead.outreach_status ?? '')
@@ -356,13 +357,14 @@ async function processIncoming(body: Record<string, unknown>) {
         return
       }
 
-      await supabase.from('messages').insert({
+      const { error: outboundErr } = await supabase.from('messages').insert({
         lead_id:   leadId,
         direction: 'outbound',
         channel:   'whatsapp',
         content:   reply,
         status:    'sent',
       })
+      if (outboundErr) console.error('[webhook] messages outbound insert error:', outboundErr.message)
 
       console.log('[webhook] resposta enviada para lead:', matchedLead.company_name)
     }
