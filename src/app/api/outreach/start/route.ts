@@ -157,8 +157,15 @@ export async function POST(req: NextRequest) {
             )
 
             if (!evolutionRes.ok) {
-              const errText = await evolutionRes.text().catch(() => evolutionRes.statusText)
-              throw new Error(`Evolution API: ${evolutionRes.status} — ${errText}`)
+              const errBody = await evolutionRes.text().catch(() => evolutionRes.statusText)
+              // Número não tem WhatsApp — marcar como no_contact e pular (sem retry)
+              if (evolutionRes.status === 400 && errBody.includes('"exists":false')) {
+                await supabase.from('leads').update({ outreach_status: 'no_contact', status: 'no_contact' }).eq('id', lead.id)
+                send({ type: 'error', company_name: lead.company_name, error: 'Sem WhatsApp' })
+                totalErrors++
+                continue
+              }
+              throw new Error(`Evolution API: ${evolutionRes.status} — ${errBody}`)
             }
 
             // 3e. Salvar lid_jid retornado pela Evolution (para identificar @lid no webhook)
