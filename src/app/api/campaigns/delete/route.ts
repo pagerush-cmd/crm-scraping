@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabaseServer'
+import { createClient } from '@supabase/supabase-js'
+
+function createServiceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  )
+}
 
 export async function DELETE(req: NextRequest) {
   let body: Record<string, unknown>
@@ -14,7 +22,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'id obrigatório' }, { status: 400 })
   }
 
-  const supabase = createServerClient()
+  const supabase = createServiceClient()
 
   // ── 1. Buscar leads da campanha ──────────────────────────────────────────────
   const { data: leads, error: leadsErr } = await supabase
@@ -28,38 +36,49 @@ export async function DELETE(req: NextRequest) {
 
   const leadIds = (leads ?? []).map((l) => l.id)
 
-  // ── 2. Deletar messages dos leads ────────────────────────────────────────────
   if (leadIds.length > 0) {
+    // ── 2. Deletar messages dos leads ──────────────────────────────────────────
     const { error: msgErr } = await supabase
       .from('messages')
       .delete()
       .in('lead_id', leadIds)
 
     if (msgErr) {
-      console.error('[campaigns/delete] messages:', msgErr)
+      console.error('[campaigns/delete] messages:', msgErr.message)
       return NextResponse.json({ ok: false, error: msgErr.message }, { status: 500 })
+    }
+
+    // ── 3. Deletar lead_enrichment dos leads ───────────────────────────────────
+    const { error: enrichErr } = await supabase
+      .from('lead_enrichment')
+      .delete()
+      .in('lead_id', leadIds)
+
+    if (enrichErr) {
+      console.error('[campaigns/delete] lead_enrichment:', enrichErr.message)
+      // não fatal — continua
     }
   }
 
-  // ── 3. Deletar leads ─────────────────────────────────────────────────────────
+  // ── 4. Deletar leads ─────────────────────────────────────────────────────────
   const { error: delLeadsErr } = await supabase
     .from('leads')
     .delete()
     .eq('campaign_id', id)
 
   if (delLeadsErr) {
-    console.error('[campaigns/delete] leads:', delLeadsErr)
+    console.error('[campaigns/delete] leads:', delLeadsErr.message)
     return NextResponse.json({ ok: false, error: delLeadsErr.message }, { status: 500 })
   }
 
-  // ── 4. Deletar campanha ──────────────────────────────────────────────────────
+  // ── 5. Deletar campanha ──────────────────────────────────────────────────────
   const { error: delCampaignErr } = await supabase
     .from('campaigns')
     .delete()
     .eq('id', id)
 
   if (delCampaignErr) {
-    console.error('[campaigns/delete] campaign:', delCampaignErr)
+    console.error('[campaigns/delete] campaign:', delCampaignErr.message)
     return NextResponse.json({ ok: false, error: delCampaignErr.message }, { status: 500 })
   }
 
