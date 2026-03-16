@@ -82,8 +82,28 @@ async function processIncoming(body: Record<string, unknown>) {
         phoneNumber = raw.slice(-11)
         console.log('[webhook] phoneNumber via test_numbers.lid_jid:', phoneNumber)
       } else {
-        console.log('[webhook] @lid não encontrado em test_numbers — remoteJid:', remoteJid)
-        return
+        // Fallback: Evolution retorna @s.whatsapp.net no send, mas Android envia @lid no webhook.
+        // Se test_numbers tem lid_jid em formato @s.whatsapp.net, extrair phone dali e
+        // salvar o @lid correto para lookups futuros.
+        console.log('[webhook] @lid não encontrado por lid_jid — tentando fallback via @s.whatsapp.net')
+        const fallback = (allTestNums ?? []).find((n: { phone: string; lid_jid: string | null }) =>
+          n.lid_jid && n.lid_jid.includes('@s.whatsapp.net')
+        )
+        console.log('[webhook] fallback candidato:', fallback)
+        if (fallback) {
+          const raw = String(fallback.phone ?? '').replace(/\D/g, '')
+          phoneNumber = raw.slice(-11)
+          console.log('[webhook] phoneNumber via fallback @s.whatsapp.net:', phoneNumber)
+          // Atualizar lid_jid para o @lid correto
+          await supabase
+            .from('test_numbers')
+            .update({ lid_jid: remoteJid })
+            .eq('phone', fallback.phone)
+          console.log('[webhook] lid_jid atualizado para:', remoteJid)
+        } else {
+          console.log('[webhook] sem fallback disponível — remoteJid:', remoteJid)
+          return
+        }
       }
     } else {
       console.log('[webhook] não foi possível extrair número — remoteJid:', remoteJid, 'senderPn:', senderPn)
