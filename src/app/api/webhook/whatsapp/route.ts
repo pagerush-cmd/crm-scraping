@@ -122,7 +122,7 @@ async function processIncoming(body: Record<string, unknown>) {
     // ── Buscar test_numbers e leads em paralelo ──────────────────────────────
     const [testNumsRes, leadsRes] = await Promise.all([
       supabase.from('test_numbers').select('id, phone').not('phone', 'is', null),
-      supabase.from('leads').select('id, company_name, phone, outreach_status').not('phone', 'is', null),
+      supabase.from('leads').select('id, company_name, phone, outreach_status, status').not('phone', 'is', null),
     ])
 
     const matchedTest = (testNumsRes.data ?? []).find((n: { phone: string }) =>
@@ -269,9 +269,18 @@ async function processIncoming(body: Record<string, unknown>) {
       if (inboundErr) console.error('[webhook] messages inbound insert error:', inboundErr.message)
 
       // Atualizar status do lead
-      const currentStatus = String(matchedLead.outreach_status ?? '')
-      if (['contacted', 'replied'].includes(currentStatus)) {
-        await supabase.from('leads').update({ outreach_status: 'replied' }).eq('id', leadId)
+      const currentOutreachStatus = String(matchedLead.outreach_status ?? '')
+      const currentStatus = String(matchedLead.status ?? '')
+      const statusUpdates: Record<string, string> = {}
+      if (['contacted', 'replied'].includes(currentOutreachStatus)) {
+        statusUpdates.outreach_status = 'replied'
+      }
+      // Mover para 'responding' na pipeline quando lead responde
+      if (['new', 'contacted'].includes(currentStatus)) {
+        statusUpdates.status = 'responding'
+      }
+      if (Object.keys(statusUpdates).length > 0) {
+        await supabase.from('leads').update(statusUpdates).eq('id', leadId)
       }
 
       // Buscar histórico, enrichment e settings em paralelo
@@ -337,7 +346,7 @@ async function processIncoming(body: Record<string, unknown>) {
       console.log('[webhook] reply IA (lead):', reply.substring(0, 80))
 
       if (reply.toUpperCase().includes('HANDOFF')) {
-        await supabase.from('leads').update({ outreach_status: 'qualified' }).eq('id', leadId)
+        await supabase.from('leads').update({ outreach_status: 'qualified', status: 'waiting_human' }).eq('id', leadId)
         console.log('[webhook] HANDOFF — lead qualificado:', matchedLead.company_name)
         return
       }
