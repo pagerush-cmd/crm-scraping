@@ -6,7 +6,7 @@ import { ptBR } from 'date-fns/locale'
 import {
   AlertCircle, CheckCircle2, Download,
   Loader2, MapPin, MoreHorizontal,
-  Pencil, Plus, Search, Trash2, X,
+  Pencil, Plus, Search, Trash2, UserPlus, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -25,9 +25,11 @@ import { Progress } from '@/components/ui/progress'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { NewCampaignModal }    from './new-campaign-modal'
-import { EditCampaignModal }   from './edit-campaign-modal'
-import { DeleteCampaignDialog } from './delete-campaign-dialog'
+import { NewCampaignModal }      from './new-campaign-modal'
+import { EditCampaignModal }     from './edit-campaign-modal'
+import { DeleteCampaignDialog }  from './delete-campaign-dialog'
+import { ManualCampaignModal }   from './manual-campaign-modal'
+import { AddLeadModal }          from './add-lead-modal'
 
 // ─── status config ────────────────────────────────────────────────────────────
 
@@ -247,8 +249,10 @@ export function CampaignsTable({ initialCampaigns }: CampaignsTableProps) {
 
   // modal / dialog state
   const [newOpen,         setNewOpen]         = useState(false)
+  const [manualOpen,      setManualOpen]      = useState(false)
   const [editCampaign,    setEditCampaign]    = useState<Campaign | null>(null)
   const [deleteCampaign,  setDeleteCampaign]  = useState<Campaign | null>(null)
+  const [addLeadCampaign, setAddLeadCampaign] = useState<Campaign | null>(null)
   const [scrapeTarget,    setScrapeTarget]    = useState<Campaign | null>(null)
   const [scrapeState,     setScrapeState]     = useState<ScrapeState | null>(null)
   const [backupLoadingId, setBackupLoadingId] = useState<string | null>(null)
@@ -372,6 +376,10 @@ export function CampaignsTable({ initialCampaigns }: CampaignsTableProps) {
               <span className="text-xs text-muted-foreground">
                 {campaigns.length} {campaigns.length === 1 ? 'campanha' : 'campanhas'}
               </span>
+              <Button size="sm" variant="outline" className="gap-2" onClick={() => setManualOpen(true)}>
+                <UserPlus className="h-4 w-4" />
+                <span className="hidden sm:inline">Campanha manual</span>
+              </Button>
               <Button size="sm" className="gap-2" onClick={() => setNewOpen(true)}>
                 <Plus className="h-4 w-4" />
                 Nova campanha
@@ -470,6 +478,11 @@ export function CampaignsTable({ initialCampaigns }: CampaignsTableProps) {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => setAddLeadCampaign(campaign)}>
+                                <UserPlus className="h-4 w-4" />
+                                Adicionar lead
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => setEditCampaign(campaign)}>
                                 <Pencil className="h-4 w-4" />
                                 Editar
@@ -504,6 +517,18 @@ export function CampaignsTable({ initialCampaigns }: CampaignsTableProps) {
         open={newOpen}
         onOpenChange={setNewOpen}
         onCreated={handleCreated}
+      />
+      <ManualCampaignModal
+        open={manualOpen}
+        onOpenChange={setManualOpen}
+        onCreated={handleCreated}
+      />
+      <AddLeadModal
+        campaignId={addLeadCampaign?.id ?? ''}
+        campaignName={addLeadCampaign?.name ?? ''}
+        open={addLeadCampaign !== null}
+        onOpenChange={(o) => { if (!o) setAddLeadCampaign(null) }}
+        onAdded={() => { /* leads are managed separately in /leads page */ }}
       />
       <EditCampaignModal
         campaign={editCampaign}
