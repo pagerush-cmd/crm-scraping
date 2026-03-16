@@ -1,259 +1,216 @@
-import { format } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
-import { Megaphone, Users, TrendingUp, Clock } from 'lucide-react'
+import { createClient } from '@supabase/supabase-js'
+import { Megaphone, Users, TrendingUp, DollarSign, MessageSquare } from 'lucide-react'
 
-import { createServerClient } from '@/lib/supabaseServer'
+import { STATUS_CONFIG, type LeadStatus } from '@/lib/outreach-config'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 
 export const dynamic = 'force-dynamic'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 
-// ─── tipos locais ──────────────────────────────────────────────────────────────
-
-interface Campaign {
-  id: string
-  name: string
-  city: string
-  niche: string
-  status: string
+function createServiceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  )
 }
 
-interface Lead {
-  id: string
-  campaign_id: string
-  company_name: string
-  status: string
-  created_at: string
+function fmt(n: number) {
+  return n.toLocaleString('pt-BR')
 }
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
-
-function formatDate(iso: string) {
-  return format(new Date(iso), 'dd/MM HH:mm', { locale: ptBR })
+function fmtBrl(n: number) {
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 }
 
-function statusLabel(status: string) {
-  const map: Record<string, string> = {
-    new: 'Novo',
-    contacted: 'Contatado',
-    qualified: 'Qualificado',
-    converted: 'Convertido',
-    lost: 'Perdido',
-  }
-  return map[status] ?? status
-}
-
-// ─── page ─────────────────────────────────────────────────────────────────────
+// Funil: order to show
+const FUNNEL: LeadStatus[] = [
+  'contacted', 'responding', 'interested', 'negotiating',
+  'waiting_human', 'proposal_sent', 'closed_won', 'closed_lost', 'no_contact',
+]
 
 export default async function DashboardPage() {
-  const supabase = createServerClient()
+  const supabase = createServiceClient()
 
-  // Todas as queries em paralelo
   const [
-    { data: activeCampaigns },
-    { count: totalLeads },
-    { data: lastLeadRow },
+    { data: campaigns },
+    { data: leads },
+    { data: priceSetting },
     { data: recentLeads },
-    { data: allCampaigns },
   ] = await Promise.all([
-    supabase
-      .from('campaigns')
-      .select('id, name, city, niche, status')
-      .eq('status', 'running'),
-
+    supabase.from('campaigns').select('id, name, status'),
+    supabase.from('leads').select('id, campaign_id, company_name, status, created_at'),
+    supabase.from('settings').select('value').eq('key', 'service_price').single(),
     supabase
       .from('leads')
-      .select('*', { count: 'exact', head: true }),
-
-    supabase
-      .from('leads')
-      .select('created_at')
+      .select('id, company_name, status, created_at')
       .order('created_at', { ascending: false })
-      .limit(1),
-
-    supabase
-      .from('leads')
-      .select('id, campaign_id, company_name, status, created_at')
-      .order('created_at', { ascending: false })
-      .limit(10),
-
-    supabase
-      .from('campaigns')
-      .select('id, city, niche'),
+      .limit(8),
   ])
 
-  // Mapa id → campanha para o join manual na tabela de leads
-  const campaignMap = new Map<string, { city: string; niche: string }>(
-    (allCampaigns ?? []).map((c) => [c.id, { city: c.city, niche: c.niche }])
-  )
+  const servicePrice = parseFloat(priceSetting?.value ?? '0') || 0
+  const allLeads = leads ?? []
 
-  const lastCollectIso: string | null = lastLeadRow?.[0]?.created_at ?? null
-  const activeCampaignsCount = activeCampaigns?.length ?? 0
-  const hasLeads = (recentLeads?.length ?? 0) > 0
+  // counts per status
+  const countByStatus = new Map<string, number>()
+  for (const l of allLeads) {
+    countByStatus.set(l.status, (countByStatus.get(l.status) ?? 0) + 1)
+  }
+
+  const totalLeads       = allLeads.length
+  const totalNew         = countByStatus.get('new') ?? 0
+  const totalContacted   = totalLeads - totalNew
+  const totalClosed      = countByStatus.get('closed_won') ?? 0
+  const totalWaiting     = countByStatus.get('waiting_human') ?? 0
+  const convRate         = totalContacted > 0 ? ((totalClosed / totalContacted) * 100).toFixed(1) : null
+  const revenue          = totalClosed * servicePrice
+
+  const activeCampaigns  = (campaigns ?? []).filter((c) => c.status === 'running').length
 
   return (
-    <div className="flex flex-col gap-8 p-8">
+    <div className="flex flex-col gap-8 p-6">
       {/* Header */}
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            CRM Scraping — Fase 1
-          </h1>
-          <Badge variant="secondary" className="rounded-xl text-xs">
-            Coletor + CRM
-          </Badge>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Visão geral das campanhas e leads coletados.
-        </p>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Dashboard</h1>
+        <p className="text-sm text-muted-foreground">Visão geral do pipeline de vendas.</p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {/* Campanhas Ativas */}
+      {/* Stats */}
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         <Card className="rounded-2xl shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Campanhas Ativas
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Campanhas Ativas</CardTitle>
             <Megaphone className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-foreground">
-              {activeCampaignsCount > 0 ? activeCampaignsCount : '—'}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {activeCampaignsCount > 0
-                ? `${activeCampaignsCount} em execução`
-                : 'Nenhuma campanha ainda'}
-            </p>
+            <p className="text-3xl font-bold">{activeCampaigns > 0 ? fmt(activeCampaigns) : '—'}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{(campaigns ?? []).length} campanhas no total</p>
           </CardContent>
         </Card>
 
-        {/* Total de Leads */}
         <Card className="rounded-2xl shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total de Leads
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Leads Contatados</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-foreground">
-              {totalLeads != null && totalLeads > 0
-                ? totalLeads.toLocaleString('pt-BR')
-                : '—'}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {totalLeads ? 'leads coletados' : 'Nenhum lead ainda'}
-            </p>
+            <p className="text-3xl font-bold">{totalContacted > 0 ? fmt(totalContacted) : '—'}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{fmt(totalLeads)} leads no total</p>
           </CardContent>
         </Card>
 
-        {/* Taxa de Conversão */}
         <Card className="rounded-2xl shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Taxa de Conversão
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Taxa de Conversão</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-foreground">—</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Sem dados suficientes
-            </p>
+            <p className="text-3xl font-bold">{convRate ? `${convRate}%` : '—'}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{fmt(totalClosed)} fechados</p>
           </CardContent>
         </Card>
 
-        {/* Última Coleta */}
         <Card className="rounded-2xl shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Última Coleta
-            </CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Receita Estimada</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-foreground">
-              {lastCollectIso
-                ? format(new Date(lastCollectIso), 'HH:mm')
-                : '—'}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {lastCollectIso
-                ? format(new Date(lastCollectIso), "dd/MM/yyyy", { locale: ptBR })
-                : 'Nenhuma coleta realizada'}
-            </p>
+            <p className="text-3xl font-bold">{revenue > 0 ? fmtBrl(revenue) : '—'}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{servicePrice > 0 ? `${fmtBrl(servicePrice)} por fechamento` : 'Configure o preço nas configurações'}</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Atividade Recente */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        {/* Funil */}
+        <Card className="rounded-2xl shadow-sm xl:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base font-semibold">Pipeline por Estágio</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {FUNNEL.map((key) => {
+              const cfg   = STATUS_CONFIG[key]
+              const count = countByStatus.get(key) ?? 0
+              const max   = Math.max(...FUNNEL.map((k) => countByStatus.get(k) ?? 0), 1)
+              const pct   = Math.round((count / max) * 100)
+              return (
+                <div key={key} className="flex items-center gap-3">
+                  <span className="w-36 shrink-0 text-xs text-muted-foreground">{cfg.label}</span>
+                  <div className="flex-1 rounded-full bg-muted h-2 overflow-hidden">
+                    <div
+                      className={`h-2 rounded-full ${cfg.bg} transition-all`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className="w-8 shrink-0 text-right text-xs font-medium text-foreground">{fmt(count)}</span>
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
+
+        {/* Alertas */}
+        <Card className="rounded-2xl shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              Atenção Necessária
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {totalWaiting === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhum lead aguardando atendimento humano.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2.5 dark:bg-red-950">
+                  <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+                      {fmt(totalWaiting)} lead{totalWaiting > 1 ? 's' : ''} aguardando humano
+                    </p>
+                    <p className="text-xs text-red-600/70 dark:text-red-400/70">
+                      Acesse Disparos para atender
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Atividade recente */}
       <Card className="rounded-2xl shadow-sm">
         <CardHeader>
-          <CardTitle className="text-base font-semibold">
-            Atividade Recente
-          </CardTitle>
+          <CardTitle className="text-base font-semibold">Atividade Recente</CardTitle>
         </CardHeader>
         <CardContent>
-          {hasLeads ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Data</TableHead>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead>Cidade</TableHead>
-                  <TableHead>Nicho</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(recentLeads as Lead[]).map((lead) => {
-                  const campaign = campaignMap.get(lead.campaign_id)
-                  return (
-                    <TableRow key={lead.id}>
-                      <TableCell className="text-muted-foreground">
-                        {formatDate(lead.created_at)}
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        {lead.company_name}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {campaign?.city ?? '—'}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {campaign?.niche ?? '—'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className="rounded-lg text-xs">
-                          {statusLabel(lead.status)}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
+          {(recentLeads ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum lead ainda.</p>
           ) : (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
-                <TrendingUp className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <p className="text-sm font-medium text-foreground">
-                Nenhuma atividade ainda
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Crie uma campanha e comece a coletar leads para ver a atividade aqui.
-              </p>
+            <div className="flex flex-col divide-y">
+              {(recentLeads ?? []).map((lead) => {
+                const cfg = STATUS_CONFIG[lead.status as LeadStatus]
+                const d   = new Date(lead.created_at)
+                return (
+                  <div key={lead.id} className="flex items-center justify-between py-2.5 gap-3">
+                    <span className="text-sm font-medium text-foreground truncate">{lead.company_name}</span>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <span className="text-xs text-muted-foreground">
+                        {d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} {d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {cfg ? (
+                        <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 border-transparent ${cfg.bg} ${cfg.text}`}>
+                          {cfg.label}
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{lead.status}</Badge>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </CardContent>
