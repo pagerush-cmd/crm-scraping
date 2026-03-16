@@ -44,12 +44,30 @@ async function processIncoming(body: Record<string, unknown>) {
 
     let phoneNumber: string | null = null
 
+    const supabase = createServiceClient()
+
     if (senderPn.includes('@s.whatsapp.net')) {
       phoneNumber = toPhone11(senderPn)
       console.log('[webhook] phoneNumber via senderPn:', phoneNumber)
     } else if (remoteJid.includes('@s.whatsapp.net')) {
       phoneNumber = toPhone11(remoteJid)
       console.log('[webhook] phoneNumber via remoteJid:', phoneNumber)
+    } else if (remoteJid.includes('@lid')) {
+      // Buscar test_number pelo lid_jid salvo
+      console.log('[webhook] remoteJid é @lid, buscando em test_numbers:', remoteJid)
+      const { data: testByLid } = await supabase
+        .from('test_numbers')
+        .select('phone')
+        .eq('lid_jid', remoteJid)
+        .maybeSingle()
+      if (testByLid?.phone) {
+        const raw = String(testByLid.phone).replace(/\D/g, '')
+        phoneNumber = raw.slice(-11)
+        console.log('[webhook] phoneNumber via test_numbers.lid_jid:', phoneNumber)
+      } else {
+        console.log('[webhook] @lid não encontrado em test_numbers — remoteJid:', remoteJid)
+        return
+      }
     } else {
       console.log('[webhook] não foi possível extrair número — remoteJid:', remoteJid, 'senderPn:', senderPn)
       return
@@ -59,9 +77,6 @@ async function processIncoming(body: Record<string, unknown>) {
       console.log('[webhook] phoneNumber vazio após extração')
       return
     }
-
-    // ── Buscar lead ───────────────────────────────────────────────────────────
-    const supabase = createServiceClient()
 
     const { data: leadsFound, error } = await supabase
       .from('leads')

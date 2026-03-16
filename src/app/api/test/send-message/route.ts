@@ -44,8 +44,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Evolution API: ${res.status} — ${errText}` }, { status: 502 })
   }
 
-  // Salvar mensagem outbound em test_messages
   const phone11 = digits.length === 13 && digits.startsWith('55') ? digits.substring(2) : digits.slice(-11)
+
+  // Salvar lid_jid retornado pela Evolution em test_numbers
+  try {
+    const evoData = await res.clone().json()
+    const lidJid = evoData?.key?.remoteJid as string | undefined
+    if (lidJid) {
+      await supabase
+        .from('test_numbers')
+        .update({ lid_jid: lidJid })
+        .eq('phone', phone11)
+    }
+  } catch { /* não crítico */ }
+
+  // Salvar mensagem outbound em test_messages
   await supabase.from('test_messages').insert({
     phone:     phone11,
     direction: 'outbound',
