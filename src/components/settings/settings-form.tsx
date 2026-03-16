@@ -851,22 +851,43 @@ interface ConversationSession {
 type SimChatMsg = { from: 'ana' | 'lead'; text: string }
 
 function SimulatorSection() {
-  const [number,   setNumber]   = useState('')
-  const [starting, setStarting] = useState(false)
-  const [session,  setSession]  = useState<ConversationSession | null>(null)
-  const [reply,    setReply]    = useState('')
-  const [sending,  setSending]  = useState(false)
+  const [number,     setNumber]     = useState('')
+  const [starting,   setStarting]   = useState(false)
+  const [session,    setSession]    = useState<ConversationSession | null>(null)
+  const [reply,      setReply]      = useState('')
+  const [sending,    setSending]    = useState(false)
+  const [polledMsgs, setPolledMsgs] = useState<{ direction: string; content: string }[]>([])
 
-  const feedRef  = useRef<HTMLDivElement>(null)
-  const replyRef = useRef<HTMLInputElement>(null)
+  const feedRef     = useRef<HTMLDivElement>(null)
+  const replyRef    = useRef<HTMLInputElement>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const phone11 = number.trim().replace(/\D/g, '').slice(-11)
 
   useEffect(() => {
     if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight
-  }, [session?.msgs])
+  }, [polledMsgs, sending])
+
+  // Polling de test_messages enquanto há sessão ativa
+  useEffect(() => {
+    if (!session || !phone11) return
+
+    async function fetchMsgs() {
+      const res = await fetch(`/api/test/messages?phone=${phone11}`)
+      if (!res.ok) return
+      const data: { messages?: { direction: string; content: string }[] } = await res.json()
+      setPolledMsgs(data.messages ?? [])
+    }
+
+    fetchMsgs()
+    intervalRef.current = setInterval(fetchMsgs, 1000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [session, phone11])
 
   async function handleStart() {
     if (!number.trim()) return
     setStarting(true)
+    setPolledMsgs([])
     try {
       const res  = await fetch('/api/outreach/generate-message', {
         method:  'POST',
@@ -875,12 +896,7 @@ function SimulatorSection() {
       })
       const data: { message?: string; lead_id?: string; company_name?: string; error?: string } = await res.json()
       if (!res.ok || !data.message) throw new Error(data.error ?? 'Erro ao gerar mensagem')
-      setSession({
-        leadId:  data.lead_id!,
-        company: data.company_name ?? 'Lead',
-        msgs:    [{ from: 'ana', text: data.message }],
-        handoff: false,
-      })
+      setSession({ leadId: data.lead_id!, company: data.company_name ?? 'Lead', msgs: [], handoff: false })
       setTimeout(() => replyRef.current?.focus(), 50)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
@@ -893,11 +909,12 @@ function SimulatorSection() {
     if (!session || !reply.trim() || session.handoff) return
     const text = reply.trim()
     setReply('')
-    const updatedMsgs: SimChatMsg[] = [...session.msgs, { from: 'lead', text }]
-    setSession((prev) => prev ? { ...prev, msgs: updatedMsgs } : null)
     setSending(true)
     try {
-      const history = session.msgs.map((m) => ({ role: m.from === 'ana' ? 'assistant' : 'user', content: m.text }))
+      const history = polledMsgs.map((m) => ({
+        role:    m.direction === 'outbound' ? 'assistant' as const : 'user' as const,
+        content: m.content,
+      }))
       const res  = await fetch('/api/outreach/agent-reply', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -907,9 +924,8 @@ function SimulatorSection() {
       if (!res.ok) throw new Error(data.error ?? 'Erro ao gerar resposta')
       if (data.handoff) {
         setSession((prev) => prev ? { ...prev, handoff: true } : null)
-      } else {
-        setSession((prev) => prev ? { ...prev, msgs: [...prev.msgs, { from: 'ana', text: data.message! }] } : null)
       }
+      // mensagens chegam via polling automaticamente
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
       setReply(text)
@@ -944,7 +960,7 @@ function SimulatorSection() {
             {starting ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Iniciando…</> : 'Iniciar conversa'}
           </Button>
         ) : (
-          <Button size="sm" variant="outline" onClick={() => { setSession(null); setReply('') }} className="shrink-0">
+          <Button size="sm" variant="outline" onClick={() => { setSession(null); setReply(''); setPolledMsgs([]) }} className="shrink-0">
             Encerrar
           </Button>
         )}
@@ -975,17 +991,17 @@ function SimulatorSection() {
             className="flex flex-1 flex-col gap-2 overflow-y-auto rounded-xl border bg-muted/20 p-3"
             style={{ minHeight: '240px' }}
           >
-            {session.msgs.map((msg, i) => (
-              <div key={i} className={`flex ${msg.from === 'lead' ? 'justify-end' : 'justify-start'}`}>
+            {polledMsgs.map((msg, i) => (
+              <div key={i} className={`flex ${msg.direction === 'inbound' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[78%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
-                  msg.from === 'ana'
+                  msg.direction === 'outbound'
                     ? 'rounded-tl-sm border bg-card text-foreground'
                     : 'rounded-tr-sm bg-primary text-primary-foreground'
                 }`}>
-                  {msg.from === 'ana' && (
+                  {msg.direction === 'outbound' && (
                     <p className="mb-0.5 text-[10px] font-semibold text-muted-foreground">Ana</p>
                   )}
-                  <p style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</p>
+                  <p style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</p>
                 </div>
               </div>
             ))}

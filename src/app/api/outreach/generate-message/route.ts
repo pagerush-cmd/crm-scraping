@@ -118,6 +118,10 @@ export async function POST(req: NextRequest) {
           body:    JSON.stringify({ number: normalizePhone(test_number), text: message }),
         }).catch(() => {/* non-fatal */})
       }
+
+      // Salvar outbound em test_messages para polling do simulador
+      const phone11 = normalizePhone(test_number).slice(-11)
+      await supabase.from('test_messages').insert({ phone: phone11, direction: 'outbound', content: message })
     }
 
     return Response.json({

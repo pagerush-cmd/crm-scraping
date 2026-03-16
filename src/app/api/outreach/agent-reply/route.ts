@@ -109,8 +109,10 @@ export async function POST(req: NextRequest) {
       return Response.json({ handoff: true })
     }
 
-    // Send via Evolution API if test_number provided
+    // Send via Evolution API + persist to test_messages if test_number provided
     if (test_number) {
+      const phone11 = normalizePhone(test_number).slice(-11)
+
       const evolutionUrl      = s.evolution_api_url      ?? process.env.EVOLUTION_API_URL      ?? ''
       const evolutionKey      = s.evolution_api_key      ?? process.env.EVOLUTION_API_KEY      ?? ''
       const evolutionInstance = s.evolution_instance_name ?? process.env.EVOLUTION_INSTANCE_NAME ?? ''
@@ -122,6 +124,10 @@ export async function POST(req: NextRequest) {
           body:    JSON.stringify({ number: normalizePhone(test_number), text: reply }),
         }).catch(() => {/* non-fatal */})
       }
+
+      // Salvar inbound (mensagem do lead) e outbound (resposta da Ana) para polling do simulador
+      await supabase.from('test_messages').insert({ phone: phone11, direction: 'inbound', content: last_message })
+      await supabase.from('test_messages').insert({ phone: phone11, direction: 'outbound', content: reply })
     }
 
     return Response.json({ message: reply })
