@@ -7,6 +7,15 @@ export type LeadStatus =
   | 'invalid'
   | 'lost'
 
+export type OutreachStatus =
+  | 'new'
+  | 'contacted'
+  | 'replied'
+  | 'qualified'
+  | 'converted'
+  | 'invalid'
+  | 'lost'
+
 export interface Lead {
   id: string
   campaign_id: string
@@ -18,6 +27,7 @@ export interface Lead {
   rating: number | null
   reviews_count: number | null
   status: LeadStatus
+  outreach_status: OutreachStatus | null
   source: string | null
   created_at: string
 }

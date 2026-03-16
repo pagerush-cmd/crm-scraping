@@ -10,7 +10,7 @@ export default async function LeadsPage() {
     supabase
       .from('leads')
       .select(
-        'id, campaign_id, company_name, phone, address, website, category, rating, reviews_count, status, source, created_at'
+        'id, campaign_id, company_name, phone, address, website, category, rating, reviews_count, status, outreach_status, source, created_at'
       )
       .order('created_at', { ascending: false })
       .limit(500),

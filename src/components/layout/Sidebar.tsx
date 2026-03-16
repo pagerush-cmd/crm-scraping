@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Megaphone, Users, Database, Sparkles, Settings, Send } from 'lucide-react'
+import { LayoutDashboard, Megaphone, Users, Database, Sparkles, Settings, Send, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Separator } from '@/components/ui/separator'
 
@@ -13,8 +13,9 @@ const PHASE1_NAV = [
 ]
 
 const PHASE2_NAV = [
-  { label: 'Enriquecer Leads', href: '/enrich',   icon: Sparkles },
-  { label: 'Disparos',         href: '/outreach', icon: Send     },
+  { label: 'Enriquecer Leads', href: '/enrich',       icon: Sparkles      },
+  { label: 'Disparos',         href: '/outreach',      icon: Send          },
+  { label: 'Conversas',        href: '/conversations', icon: MessageSquare },
 ]
 
 const ALL_NAV = [...PHASE1_NAV, ...PHASE2_NAV]
