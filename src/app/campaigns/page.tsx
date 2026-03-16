@@ -2,6 +2,8 @@ import { createServerClient } from '@/lib/supabaseServer'
 import type { Campaign } from '@/types/campaign'
 import { CampaignsTable } from '@/components/campaigns/campaigns-table'
 
+export const dynamic = 'force-dynamic'
+
 export default async function CampaignsPage() {
   const supabase = createServerClient()
 

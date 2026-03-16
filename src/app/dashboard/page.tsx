@@ -3,6 +3,8 @@ import { ptBR } from 'date-fns/locale'
 import { Megaphone, Users, TrendingUp, Clock } from 'lucide-react'
 
 import { createServerClient } from '@/lib/supabaseServer'
+
+export const dynamic = 'force-dynamic'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {

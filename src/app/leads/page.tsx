@@ -3,6 +3,8 @@ import type { Lead } from '@/types/lead'
 import type { Campaign } from '@/types/campaign'
 import { LeadsTable } from '@/components/leads/leads-table'
 
+export const dynamic = 'force-dynamic'
+
 export default async function LeadsPage() {
   const supabase = createServerClient()
 

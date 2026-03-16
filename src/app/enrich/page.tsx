@@ -2,6 +2,7 @@ import { createServerClient } from '@/lib/supabaseServer'
 import type { Campaign } from '@/types/campaign'
 import { EnrichCampaigns } from '@/components/enrich/enrich-campaigns'
 
+export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Enriquecer Leads — Fase 2' }
 
 export default async function EnrichPage() {
