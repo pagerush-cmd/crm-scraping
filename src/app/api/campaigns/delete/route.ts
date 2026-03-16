@@ -45,7 +45,7 @@ export async function DELETE(req: NextRequest) {
 
     if (msgErr) {
       console.error('[campaigns/delete] messages:', msgErr.message)
-      return NextResponse.json({ ok: false, error: msgErr.message }, { status: 500 })
+      return NextResponse.json({ ok: false, error: `messages: ${msgErr.message}` }, { status: 500 })
     }
 
     // ── 3. Deletar lead_enrichment dos leads ───────────────────────────────────
@@ -54,13 +54,18 @@ export async function DELETE(req: NextRequest) {
       .delete()
       .in('lead_id', leadIds)
 
-    if (enrichErr) {
-      console.error('[campaigns/delete] lead_enrichment:', enrichErr.message)
-      // não fatal — continua
-    }
+    if (enrichErr) console.error('[campaigns/delete] lead_enrichment:', enrichErr.message)
+
+    // ── 4. Deletar leads_to_enrich dos leads ───────────────────────────────────
+    const { error: lteErr } = await supabase
+      .from('leads_to_enrich')
+      .delete()
+      .in('lead_id', leadIds)
+
+    if (lteErr) console.error('[campaigns/delete] leads_to_enrich:', lteErr.message)
   }
 
-  // ── 4. Deletar leads ─────────────────────────────────────────────────────────
+  // ── 5. Deletar leads ─────────────────────────────────────────────────────────
   const { error: delLeadsErr } = await supabase
     .from('leads')
     .delete()
@@ -68,19 +73,26 @@ export async function DELETE(req: NextRequest) {
 
   if (delLeadsErr) {
     console.error('[campaigns/delete] leads:', delLeadsErr.message)
-    return NextResponse.json({ ok: false, error: delLeadsErr.message }, { status: 500 })
+    return NextResponse.json({ ok: false, error: `leads: ${delLeadsErr.message}` }, { status: 500 })
   }
 
-  // ── 5. Deletar campanha ──────────────────────────────────────────────────────
-  const { error: delCampaignErr } = await supabase
+  // ── 6. Deletar campanha ──────────────────────────────────────────────────────
+  const { data: deleted, error: delCampaignErr } = await supabase
     .from('campaigns')
     .delete()
     .eq('id', id)
+    .select('id')
 
   if (delCampaignErr) {
     console.error('[campaigns/delete] campaign:', delCampaignErr.message)
-    return NextResponse.json({ ok: false, error: delCampaignErr.message }, { status: 500 })
+    return NextResponse.json({ ok: false, error: `campaign: ${delCampaignErr.message}` }, { status: 500 })
   }
 
+  if (!deleted || deleted.length === 0) {
+    console.error('[campaigns/delete] campanha não deletada — sem permissão ou não encontrada:', id)
+    return NextResponse.json({ ok: false, error: 'Campanha não encontrada ou sem permissão para deletar' }, { status: 403 })
+  }
+
+  console.log('[campaigns/delete] OK — campaign:', id)
   return NextResponse.json({ ok: true })
 }
