@@ -119,8 +119,11 @@ export async function POST(req: NextRequest) {
         }).catch(() => {/* non-fatal */})
       }
 
-      // Salvar outbound em test_messages para polling do simulador
+      // Registrar phone em test_numbers para o webhook processar replies do WA
       const phone11 = normalizePhone(test_number).slice(-11)
+      await supabase.from('test_numbers').upsert({ phone: phone11, name: 'Simulador', active: true }, { onConflict: 'phone' })
+
+      // Salvar outbound em test_messages para polling do simulador
       await supabase.from('test_messages').insert({ phone: phone11, direction: 'outbound', content: message })
     }
 
