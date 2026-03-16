@@ -143,7 +143,7 @@ function InfoRow({ label, value, highlight }: { label: string; value: string; hi
 
 // ─── painel de progresso ──────────────────────────────────────────────────────
 
-function DispatchPanel({ state, onClose }: { state: DispatchState; onClose: () => void }) {
+function DispatchPanel({ state, onClose, onStop }: { state: DispatchState; onClose: () => void; onStop: () => void }) {
   const feedRef = useRef<HTMLDivElement>(null)
   const pct     = state.total > 0 ? Math.round(((state.sent + state.errors) / state.total) * 100) : 0
 
@@ -161,9 +161,13 @@ function DispatchPanel({ state, onClose }: { state: DispatchState; onClose: () =
           </p>
           <p className="truncate text-xs text-muted-foreground">{state.campaign.campaign.name}</p>
         </div>
-        {state.done && (
+        {state.done ? (
           <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onClose}>
             <X className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button variant="destructive" size="sm" className="h-7 text-xs" onClick={onStop}>
+            Parar
           </Button>
         )}
       </div>
@@ -254,15 +258,25 @@ export function OutreachCampaigns({ stats, outreachSettings }: OutreachCampaigns
 
   const [modalStats,    setModalStats]    = useState<CampaignOutreachStats | null>(null)
   const [dispatchState, setDispatchState] = useState<DispatchState | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  function stopDispatch() {
+    abortRef.current?.abort()
+    setDispatchState((prev) => prev ? { ...prev, done: true } : null)
+  }
 
   async function startDispatch(campaign: CampaignOutreachStats) {
     setModalStats(null)
     setDispatchState({ campaign, events: [], sent: 0, errors: 0, total: campaign.outreachNew, done: false })
 
+    const controller = new AbortController()
+    abortRef.current = controller
+
     try {
       const res = await fetch('/api/outreach/start', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal:  controller.signal,
         body: JSON.stringify({
           campaign_id: campaign.campaign.id,
         }),
@@ -415,7 +429,7 @@ export function OutreachCampaigns({ stats, outreachSettings }: OutreachCampaigns
             className="fixed inset-0 z-40 bg-black/20"
             onClick={dispatchState.done ? handleClosePanel : undefined}
           />
-          <DispatchPanel state={dispatchState} onClose={handleClosePanel} />
+          <DispatchPanel state={dispatchState} onClose={handleClosePanel} onStop={stopDispatch} />
         </>
       )}
     </>

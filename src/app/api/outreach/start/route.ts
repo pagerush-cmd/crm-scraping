@@ -49,9 +49,14 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  const abortSignal = req.signal
+
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (data: object) => controller.enqueue(enc(data))
+      const send = (data: object) => {
+        if (controller.desiredSize === null) return // stream already closed
+        controller.enqueue(enc(data))
+      }
 
       try {
         const supabase = createServiceClient()
@@ -110,6 +115,13 @@ export async function POST(req: NextRequest) {
         let totalErrors = 0
 
         for (let i = 0; i < leads.length; i++) {
+          // Parar se o cliente fechou a aba
+          if (abortSignal.aborted) {
+            send({ type: 'done', total_sent: totalSent, total_errors: totalErrors, aborted: true })
+            controller.close()
+            return
+          }
+
           const lead = leads[i] as Record<string, unknown>
           const enrichRaw  = lead.lead_enrichment
           const enrichment = Array.isArray(enrichRaw) ? enrichRaw[0] : enrichRaw as Record<string, unknown> | null
