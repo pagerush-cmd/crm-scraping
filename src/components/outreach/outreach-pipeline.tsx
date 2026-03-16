@@ -85,36 +85,43 @@ export function OutreachPipeline({ campaign, leads: initialLeads }: OutreachPipe
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Fetch last message per lead for preview
+  // Fetch last message per lead for preview (poll every 5s)
   useEffect(() => {
     if (leads.length === 0) return
     const ids = leads.map((l) => l.id)
-    supabase
-      .from('messages')
-      .select('id, lead_id, content, direction, created_at')
-      .in('lead_id', ids)
-      .order('created_at', { ascending: false })
-      .then(({ data }) => {
-        if (!data) return
-        const map = new Map<string, Message>()
-        for (const msg of data as Message[]) {
-          if (!map.has(msg.lead_id)) map.set(msg.lead_id, msg)
-        }
-        setLastMsgs(map)
-      })
+    const fetchLastMsgs = () =>
+      supabase
+        .from('messages')
+        .select('id, lead_id, content, direction, created_at')
+        .in('lead_id', ids)
+        .order('created_at', { ascending: false })
+        .then(({ data }) => {
+          if (!data) return
+          const map = new Map<string, Message>()
+          for (const msg of data as Message[]) {
+            if (!map.has(msg.lead_id)) map.set(msg.lead_id, msg)
+          }
+          setLastMsgs(map)
+        })
+
+    fetchLastMsgs()
+    const interval = setInterval(fetchLastMsgs, 5000)
+    return () => clearInterval(interval)
   }, [leads])
 
   // Fetch conversation when lead selected
-  const fetchMessages = useCallback(async (leadId: string) => {
-    setLoadingMsgs(true)
-    setMessages([])
+  const fetchMessages = useCallback(async (leadId: string, silent = false) => {
+    if (!silent) {
+      setLoadingMsgs(true)
+      setMessages([])
+    }
     const { data } = await supabase
       .from('messages')
       .select('id, lead_id, content, direction, created_at')
       .eq('lead_id', leadId)
       .order('created_at', { ascending: true })
     setMessages((data ?? []) as Message[])
-    setLoadingMsgs(false)
+    if (!silent) setLoadingMsgs(false)
   }, [])
 
   const fetchEnrichment = useCallback(async (leadId: string) => {
@@ -131,6 +138,9 @@ export function OutreachPipeline({ campaign, leads: initialLeads }: OutreachPipe
     setShowEnrich(false)
     fetchMessages(selectedId)
     fetchEnrichment(selectedId)
+
+    const interval = setInterval(() => fetchMessages(selectedId, true), 3000)
+    return () => clearInterval(interval)
   }, [selectedId, fetchMessages, fetchEnrichment])
 
   // Auto-scroll messages
