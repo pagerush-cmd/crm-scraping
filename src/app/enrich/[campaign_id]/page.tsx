@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { EnrichedLeadsTable } from '@/components/enrich/enriched-leads-table'
 import type { LeadRow } from '@/components/enrich/enriched-leads-table'
 
+export const dynamic = 'force-dynamic'
+
 export default async function EnrichCampaignPage({
   params,
 }: {

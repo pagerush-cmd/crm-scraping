@@ -11,6 +11,8 @@ function createServiceClient() {
   )
 }
 
+export const dynamic = 'force-dynamic'
+
 export default async function SettingsPage() {
   const supabase = createServiceClient()
   const { data } = await supabase.from('settings').select('key, value')

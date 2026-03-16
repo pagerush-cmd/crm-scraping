@@ -12,6 +12,8 @@ function createServiceClient() {
   )
 }
 
+export const dynamic = 'force-dynamic'
+
 export default async function OutreachPage() {
   const supabase = createServiceClient()
 
