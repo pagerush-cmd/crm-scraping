@@ -645,8 +645,12 @@ function TestNumberChat({ contact, onClose }: { contact: TestNumber; onClose: ()
           ))}
           {sending && (
             <div className="flex justify-end">
-              <div className="rounded-2xl rounded-tr-sm bg-green-600/60 px-3 py-2">
-                <Loader2 className="h-3 w-3 animate-spin text-white" />
+              <div className="rounded-2xl rounded-tr-sm bg-green-600/70 px-3 py-2.5">
+                <div className="flex gap-1 items-center">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:0ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:150ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:300ms]" />
+                </div>
               </div>
             </div>
           )}
