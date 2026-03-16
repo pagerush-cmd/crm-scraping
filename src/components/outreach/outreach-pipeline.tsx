@@ -115,12 +115,11 @@ export function OutreachPipeline({ campaign, leads: initialLeads }: OutreachPipe
       setLoadingMsgs(true)
       setMessages([])
     }
-    const { data } = await supabase
-      .from('messages')
-      .select('id, lead_id, content, direction, created_at')
-      .eq('lead_id', leadId)
-      .order('created_at', { ascending: true })
-    setMessages((data ?? []) as Message[])
+    const res = await fetch(`/api/leads/${leadId}/messages`)
+    if (res.ok) {
+      const json: { messages?: Message[] } = await res.json()
+      setMessages(json.messages ?? [])
+    }
     if (!silent) setLoadingMsgs(false)
   }, [])
 
