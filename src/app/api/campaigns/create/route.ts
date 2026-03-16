@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabaseServer'
+import { createClient } from '@supabase/supabase-js'
+
+function createServiceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  )
+}
 
 export async function POST(req: NextRequest) {
   // ── 1. Parse body ─────────────────────────────────────────────────────────
@@ -31,7 +39,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 3. Inserir no Supabase ─────────────────────────────────────────────────
-  const supabase = createServerClient()
+  const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('campaigns')
     .insert({

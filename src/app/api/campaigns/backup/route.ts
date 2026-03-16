@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabaseServer'
+import { createClient } from '@supabase/supabase-js'
+
+function createServiceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  )
+}
 
 function toSafeFilename(str: string): string {
   return str
@@ -17,7 +25,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'campaign_id obrigatório' }, { status: 400 })
   }
 
-  const supabase = createServerClient()
+  const supabase = createServiceClient()
 
   // ── 1. Buscar campanha ───────────────────────────────────────────────────────
   const { data: campaign, error: campaignErr } = await supabase
