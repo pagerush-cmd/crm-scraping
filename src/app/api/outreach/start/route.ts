@@ -179,10 +179,10 @@ export async function POST(req: NextRequest) {
               status:    'sent',
             })
 
-            // 3f. Update lead outreach_status
+            // 3f. Update lead status
             await supabase
               .from('leads')
-              .update({ outreach_status: 'contacted' })
+              .update({ outreach_status: 'contacted', status: 'contacted' })
               .eq('id', lead.id)
 
             // 3g. SSE: sent
