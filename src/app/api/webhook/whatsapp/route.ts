@@ -383,7 +383,7 @@ export async function POST(req: NextRequest) {
     return new Response('OK', { status: 200 })
   }
 
-  processIncoming(body)
+  await processIncoming(body)
 
   return new Response('OK', { status: 200 })
 }
