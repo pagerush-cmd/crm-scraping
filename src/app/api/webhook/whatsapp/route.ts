@@ -25,9 +25,17 @@ async function processIncoming(body: Record<string, unknown>) {
     const remoteJid = String(key?.remoteJid ?? '')
     const senderPn  = String(key?.senderPn  ?? '')
 
+    // Log completo dos campos de identificação — essencial para debug Android vs Web
+    console.log('[webhook] --- IDENTIFICAÇÃO ---')
     console.log('[webhook] fromMe:', fromMe)
     console.log('[webhook] remoteJid:', remoteJid)
     console.log('[webhook] senderPn:', senderPn)
+    console.log('[webhook] key completo:', JSON.stringify(key, null, 2))
+    console.log('[webhook] data.participant:', data?.participant)
+    console.log('[webhook] data.pushName:', data?.pushName)
+    console.log('[webhook] data.device:', (data as Record<string, unknown>)?.device)
+    console.log('[webhook] messageType:', data?.messageType)
+    console.log('[webhook] message keys:', Object.keys((data?.message as Record<string, unknown>) ?? {}))
 
     if (fromMe) {
       console.log('[webhook] ignorando mensagem própria')
@@ -99,29 +107,41 @@ async function processIncoming(body: Record<string, unknown>) {
 
     // ── Verificar se é número de teste e salvar mensagem ─────────────────────
     const msgData = data?.message as Record<string, unknown> | null
+    console.log('[webhook] --- EXTRAÇÃO DE TEXTO ---')
+    console.log('[webhook] message completo:', JSON.stringify(msgData, null, 2))
+
     const text = (
       (msgData?.conversation as string) ??
       ((msgData?.extendedTextMessage as Record<string, unknown>)?.text as string) ??
       ''
     ).trim()
 
-    if (text) {
+    console.log('[webhook] texto extraído:', text || '(vazio)')
+
+    if (!text) {
+      console.log('[webhook] texto vazio — não salvar mensagem')
+    } else {
       const { data: testNums } = await supabase
         .from('test_numbers')
         .select('id, phone')
         .not('phone', 'is', null)
 
+      console.log('[webhook] test_numbers cadastrados:', (testNums ?? []).map((n: { phone: string }) => String(n.phone ?? '').replace(/\D/g, '').slice(-11)))
+
       const matchedTest = (testNums ?? []).find((n: { phone: string }) => {
         return String(n.phone ?? '').replace(/\D/g, '').slice(-11) === phoneNumber
       })
 
+      console.log('[webhook] match em test_numbers:', matchedTest ? 'SIM' : 'NÃO')
+
       if (matchedTest) {
         console.log('[webhook] número de teste — salvando mensagem inbound')
-        await supabase.from('test_messages').insert({
+        const { error: insertErr } = await supabase.from('test_messages').insert({
           phone:     phoneNumber,
           direction: 'inbound',
           content:   text,
         })
+        console.log('[webhook] insert test_messages error:', insertErr)
       }
     }
 
