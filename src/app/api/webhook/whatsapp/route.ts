@@ -34,9 +34,10 @@ async function processIncoming(body: Record<string, unknown>) {
     const key       = data?.key as Record<string, unknown>
     const fromMe    = key?.fromMe as boolean
     const remoteJid = String(key?.remoteJid ?? '')
-    const senderPn  = String(key?.senderPn  ?? '')
+    // senderPn pode estar em data.senderPn (Evolution v2) ou key.senderPn
+    const senderPn  = String(data?.senderPn ?? key?.senderPn ?? '')
 
-    console.log('[webhook] fromMe:', fromMe, '| remoteJid:', remoteJid, '| senderPn:', senderPn, '| source:', (data as Record<string, unknown>)?.source)
+    console.log('[webhook] fromMe:', fromMe, '| remoteJid:', remoteJid, '| senderPn:', senderPn, '| source:', data?.source, '| pushName:', data?.pushName)
 
     if (fromMe) return
 
@@ -69,12 +70,15 @@ async function processIncoming(body: Record<string, unknown>) {
         supabase.from('leads').select('id, phone, lid_jid').not('lid_jid', 'is', null),
       ])
 
+      console.log('[webhook] @lid lookup — test_numbers:', testNumsRes.data?.length ?? 0, '| leads com lid_jid:', leadsLidRes.data?.length ?? 0)
+
       // 1. Match exato em test_numbers
       const byExactTestLid = (testNumsRes.data ?? []).find((n: { phone: string; lid_jid: string | null }) =>
         n.lid_jid === remoteJid
       )
       if (byExactTestLid) {
         phoneNumber = String(byExactTestLid.phone).replace(/\D/g, '').slice(-11)
+        console.log('[webhook] @lid match exato test_number:', phoneNumber)
       } else {
         // 2. Match exato em leads
         const byExactLeadLid = (leadsLidRes.data ?? []).find((n: { phone: string; lid_jid: string | null }) =>
@@ -82,24 +86,27 @@ async function processIncoming(body: Record<string, unknown>) {
         )
         if (byExactLeadLid) {
           phoneNumber = String(byExactLeadLid.phone).replace(/\D/g, '').slice(-11)
+          console.log('[webhook] @lid match exato lead:', phoneNumber)
         } else {
-          // 3. Fallback test_numbers: @s.whatsapp.net → atualiza para @lid
-          const fallbackTest = (testNumsRes.data ?? []).find((n: { phone: string; lid_jid: string | null }) =>
+          // 3. Fallback test_numbers: só se há exatamente 1 com @s.whatsapp.net
+          const testFallbacks = (testNumsRes.data ?? []).filter((n: { phone: string; lid_jid: string | null }) =>
             n.lid_jid?.includes('@s.whatsapp.net')
           )
-          if (fallbackTest) {
-            phoneNumber = String(fallbackTest.phone).replace(/\D/g, '').slice(-11)
-            supabase.from('test_numbers').update({ lid_jid: remoteJid }).eq('phone', fallbackTest.phone).then(() => {})
+          if (testFallbacks.length === 1) {
+            phoneNumber = String(testFallbacks[0].phone).replace(/\D/g, '').slice(-11)
+            supabase.from('test_numbers').update({ lid_jid: remoteJid }).eq('phone', testFallbacks[0].phone).then(() => {})
+            console.log('[webhook] @lid fallback test_number (único):', phoneNumber)
           } else {
-            // 4. Fallback leads: @s.whatsapp.net → atualiza para @lid
-            const fallbackLead = (leadsLidRes.data ?? []).find((n: { phone: string; lid_jid: string | null }) =>
+            // 4. Fallback leads: só se há exatamente 1 com @s.whatsapp.net
+            const leadFallbacks = (leadsLidRes.data ?? []).filter((n: { phone: string; lid_jid: string | null }) =>
               n.lid_jid?.includes('@s.whatsapp.net')
             )
-            if (fallbackLead) {
-              phoneNumber = String(fallbackLead.phone).replace(/\D/g, '').slice(-11)
-              supabase.from('leads').update({ lid_jid: remoteJid }).eq('id', (fallbackLead as Record<string, unknown>).id).then(() => {})
+            if (leadFallbacks.length === 1) {
+              phoneNumber = String(leadFallbacks[0].phone).replace(/\D/g, '').slice(-11)
+              supabase.from('leads').update({ lid_jid: remoteJid }).eq('id', (leadFallbacks[0] as Record<string, unknown>).id).then(() => {})
+              console.log('[webhook] @lid fallback lead (único):', phoneNumber)
             } else {
-              console.log('[webhook] @lid sem match:', remoteJid)
+              console.log('[webhook] @lid sem match único — remoteJid:', remoteJid, '| test fallbacks:', testFallbacks.length, '| lead fallbacks:', leadFallbacks.length)
               return
             }
           }
