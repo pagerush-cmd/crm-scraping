@@ -129,9 +129,16 @@ async function processIncoming(body: Record<string, unknown>) {
       String(n.phone ?? '').replace(/\D/g, '').slice(-11) === phoneNumber
     )
 
-    const matchedLead = (leadsRes.data ?? []).find((n: { phone: string }) =>
+    const phoneMatches = (leadsRes.data ?? []).filter((n: { phone: string }) =>
       String(n.phone ?? '').replace(/\D/g, '').slice(-11) === phoneNumber
-    ) as Record<string, unknown> | undefined
+    ) as Record<string, unknown>[]
+    // prefer lead already contacted via outreach over new/uncontacted leads
+    const contactedStatuses = ['contacted', 'replied', 'qualified', 'converted']
+    const matchedLead = phoneMatches.sort((a, b) => {
+      const aP = contactedStatuses.includes(String(a.outreach_status ?? '')) ? 0 : 1
+      const bP = contactedStatuses.includes(String(b.outreach_status ?? '')) ? 0 : 1
+      return aP - bP
+    })[0] as Record<string, unknown> | undefined
 
     console.log('[webhook] phone:', phoneNumber, '| test:', matchedTest ? 'SIM' : 'NÃO', '| lead:', matchedLead ? matchedLead.company_name : 'NÃO')
 
