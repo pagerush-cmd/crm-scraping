@@ -49,14 +49,19 @@ export async function POST(req: NextRequest) {
   // Salvar lid_jid retornado pela Evolution em test_numbers
   try {
     const evoData = await res.clone().json()
+    console.log('[send-message] Evolution response:', JSON.stringify(evoData))
     const lidJid = evoData?.key?.remoteJid as string | undefined
+    console.log('[send-message] lidJid extraído:', lidJid, '| phone11:', phone11)
     if (lidJid) {
-      await supabase
+      const { error: updateErr } = await supabase
         .from('test_numbers')
         .update({ lid_jid: lidJid })
         .eq('phone', phone11)
+      console.log('[send-message] update lid_jid error:', updateErr)
     }
-  } catch { /* não crítico */ }
+  } catch (e) {
+    console.log('[send-message] erro ao salvar lid_jid:', e)
+  }
 
   // Salvar mensagem outbound em test_messages
   await supabase.from('test_messages').insert({

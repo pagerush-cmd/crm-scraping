@@ -63,11 +63,20 @@ async function processIncoming(body: Record<string, unknown>) {
     } else if (remoteJid.includes('@lid')) {
       // Buscar test_number pelo lid_jid salvo
       console.log('[webhook] remoteJid é @lid, buscando em test_numbers:', remoteJid)
-      const { data: testByLid } = await supabase
+
+      // Logar todos os lid_jid cadastrados para comparação
+      const { data: allTestNums } = await supabase
+        .from('test_numbers')
+        .select('phone, lid_jid')
+      console.log('[webhook] test_numbers lid_jid cadastrados:', JSON.stringify(allTestNums))
+
+      const { data: testByLid, error: lidErr } = await supabase
         .from('test_numbers')
         .select('phone')
         .eq('lid_jid', remoteJid)
         .maybeSingle()
+      console.log('[webhook] busca por lid_jid — resultado:', testByLid, 'erro:', lidErr)
+
       if (testByLid?.phone) {
         const raw = String(testByLid.phone).replace(/\D/g, '')
         phoneNumber = raw.slice(-11)
