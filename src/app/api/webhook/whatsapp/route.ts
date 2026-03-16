@@ -9,15 +9,16 @@ function createServiceClient() {
   )
 }
 
+function toPhone11(jid: string): string | null {
+  if (!jid.includes('@s.whatsapp.net')) return null
+  const raw = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '')
+  return raw.length === 13 && raw.startsWith('55') ? raw.substring(2) : raw.slice(-11)
+}
+
 async function processIncoming(body: Record<string, unknown>) {
   try {
-    console.log('[webhook] body recebido:', JSON.stringify(body, null, 2))
-
     const event = body.event as string
-    if (event !== 'messages.upsert') {
-      console.log('[webhook] ignorando evento:', event)
-      return
-    }
+    if (event !== 'messages.upsert') return
 
     const data      = body.data as Record<string, unknown>
     const key       = data?.key as Record<string, unknown>
@@ -25,153 +26,95 @@ async function processIncoming(body: Record<string, unknown>) {
     const remoteJid = String(key?.remoteJid ?? '')
     const senderPn  = String(key?.senderPn  ?? '')
 
-    // Log completo dos campos de identificação — essencial para debug Android vs Web
-    console.log('[webhook] --- IDENTIFICAÇÃO ---')
-    console.log('[webhook] fromMe:', fromMe)
-    console.log('[webhook] remoteJid:', remoteJid)
-    console.log('[webhook] senderPn:', senderPn)
-    console.log('[webhook] key completo:', JSON.stringify(key, null, 2))
-    console.log('[webhook] data.participant:', data?.participant)
-    console.log('[webhook] data.pushName:', data?.pushName)
-    console.log('[webhook] data.device:', (data as Record<string, unknown>)?.device)
-    console.log('[webhook] messageType:', data?.messageType)
-    console.log('[webhook] message keys:', Object.keys((data?.message as Record<string, unknown>) ?? {}))
+    console.log('[webhook] fromMe:', fromMe, '| remoteJid:', remoteJid, '| senderPn:', senderPn, '| source:', (data as Record<string, unknown>)?.source)
 
-    if (fromMe) {
-      console.log('[webhook] ignorando mensagem própria')
-      return
-    }
+    if (fromMe) return
 
-    // ── Extrair número ────────────────────────────────────────────────────────
-    // Prioridade: senderPn > remoteJid @s.whatsapp.net
-    function toPhone11(jid: string): string | null {
-      if (!jid.includes('@s.whatsapp.net')) return null
-      const raw = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '')
-      return raw.length === 13 && raw.startsWith('55') ? raw.substring(2) : raw.slice(-11)
-    }
-
-    let phoneNumber: string | null = null
-
-    const supabase = createServiceClient()
-
-    if (senderPn.includes('@s.whatsapp.net')) {
-      phoneNumber = toPhone11(senderPn)
-      console.log('[webhook] phoneNumber via senderPn:', phoneNumber)
-    } else if (remoteJid.includes('@s.whatsapp.net')) {
-      phoneNumber = toPhone11(remoteJid)
-      console.log('[webhook] phoneNumber via remoteJid:', phoneNumber)
-    } else if (remoteJid.includes('@lid')) {
-      // Buscar test_number pelo lid_jid salvo
-      console.log('[webhook] remoteJid é @lid, buscando em test_numbers:', remoteJid)
-
-      // Logar todos os lid_jid cadastrados para comparação
-      const { data: allTestNums } = await supabase
-        .from('test_numbers')
-        .select('phone, lid_jid')
-      console.log('[webhook] test_numbers lid_jid cadastrados:', JSON.stringify(allTestNums))
-
-      const { data: testByLid, error: lidErr } = await supabase
-        .from('test_numbers')
-        .select('phone')
-        .eq('lid_jid', remoteJid)
-        .maybeSingle()
-      console.log('[webhook] busca por lid_jid — resultado:', testByLid, 'erro:', lidErr)
-
-      if (testByLid?.phone) {
-        const raw = String(testByLid.phone).replace(/\D/g, '')
-        phoneNumber = raw.slice(-11)
-        console.log('[webhook] phoneNumber via test_numbers.lid_jid:', phoneNumber)
-      } else {
-        // Fallback: Evolution retorna @s.whatsapp.net no send, mas Android envia @lid no webhook.
-        // Se test_numbers tem lid_jid em formato @s.whatsapp.net, extrair phone dali e
-        // salvar o @lid correto para lookups futuros.
-        console.log('[webhook] @lid não encontrado por lid_jid — tentando fallback via @s.whatsapp.net')
-        const fallback = (allTestNums ?? []).find((n: { phone: string; lid_jid: string | null }) =>
-          n.lid_jid && n.lid_jid.includes('@s.whatsapp.net')
-        )
-        console.log('[webhook] fallback candidato:', fallback)
-        if (fallback) {
-          const raw = String(fallback.phone ?? '').replace(/\D/g, '')
-          phoneNumber = raw.slice(-11)
-          console.log('[webhook] phoneNumber via fallback @s.whatsapp.net:', phoneNumber)
-          // Atualizar lid_jid para o @lid correto
-          await supabase
-            .from('test_numbers')
-            .update({ lid_jid: remoteJid })
-            .eq('phone', fallback.phone)
-          console.log('[webhook] lid_jid atualizado para:', remoteJid)
-        } else {
-          console.log('[webhook] sem fallback disponível — remoteJid:', remoteJid)
-          return
-        }
-      }
-    } else {
-      console.log('[webhook] não foi possível extrair número — remoteJid:', remoteJid, 'senderPn:', senderPn)
-      return
-    }
-
-    if (!phoneNumber) {
-      console.log('[webhook] phoneNumber vazio após extração')
-      return
-    }
-
-    const { data: leadsFound, error } = await supabase
-      .from('leads')
-      .select('id, company_name, phone, outreach_status')
-      .not('phone', 'is', null)
-
-    console.log('[webhook] supabase error:', error)
-    console.log('[webhook] total leads no banco:', leadsFound?.length ?? 0)
-
-    const lead = (leadsFound ?? []).find((l) => {
-      return String(l.phone ?? '').replace(/\D/g, '').slice(-11) === phoneNumber
-    })
-
-    if (lead) {
-      console.log('[webhook] lead encontrado — id:', lead.id, 'nome:', lead.company_name, 'status:', lead.outreach_status)
-    } else {
-      console.log('[webhook] lead NÃO encontrado para phone:', phoneNumber)
-      console.log('[webhook] phones no banco:', (leadsFound ?? []).map((l) => String(l.phone ?? '').replace(/\D/g, '').slice(-11)))
-    }
-
-    // ── Verificar se é número de teste e salvar mensagem ─────────────────────
+    // ── Extrair texto ────────────────────────────────────────────────────────
     const msgData = data?.message as Record<string, unknown> | null
-    console.log('[webhook] --- EXTRAÇÃO DE TEXTO ---')
-    console.log('[webhook] message completo:', JSON.stringify(msgData, null, 2))
-
     const text = (
       (msgData?.conversation as string) ??
       ((msgData?.extendedTextMessage as Record<string, unknown>)?.text as string) ??
       ''
     ).trim()
 
-    console.log('[webhook] texto extraído:', text || '(vazio)')
-
     if (!text) {
-      console.log('[webhook] texto vazio — não salvar mensagem')
-    } else {
-      const { data: testNums } = await supabase
+      console.log('[webhook] texto vazio, ignorando')
+      return
+    }
+
+    const supabase = createServiceClient()
+
+    // ── Resolver phoneNumber ────────────────────────────────────────────────
+    let phoneNumber: string | null = null
+
+    if (senderPn.includes('@s.whatsapp.net')) {
+      phoneNumber = toPhone11(senderPn)
+      console.log('[webhook] phone via senderPn:', phoneNumber)
+
+    } else if (remoteJid.includes('@s.whatsapp.net')) {
+      phoneNumber = toPhone11(remoteJid)
+      console.log('[webhook] phone via remoteJid:', phoneNumber)
+
+    } else if (remoteJid.includes('@lid')) {
+      // Buscar em test_numbers pelo lid_jid (uma única query)
+      const { data: allTestNums } = await supabase
         .from('test_numbers')
-        .select('id, phone')
-        .not('phone', 'is', null)
+        .select('phone, lid_jid')
 
-      console.log('[webhook] test_numbers cadastrados:', (testNums ?? []).map((n: { phone: string }) => String(n.phone ?? '').replace(/\D/g, '').slice(-11)))
+      const byExactLid = (allTestNums ?? []).find((n: { phone: string; lid_jid: string | null }) =>
+        n.lid_jid === remoteJid
+      )
 
-      const matchedTest = (testNums ?? []).find((n: { phone: string }) => {
-        return String(n.phone ?? '').replace(/\D/g, '').slice(-11) === phoneNumber
-      })
-
-      console.log('[webhook] match em test_numbers:', matchedTest ? 'SIM' : 'NÃO')
-
-      if (matchedTest) {
-        console.log('[webhook] número de teste — salvando mensagem inbound')
-        const { error: insertErr } = await supabase.from('test_messages').insert({
-          phone:     phoneNumber,
-          direction: 'inbound',
-          content:   text,
-        })
-        console.log('[webhook] insert test_messages error:', insertErr)
+      if (byExactLid) {
+        phoneNumber = String(byExactLid.phone).replace(/\D/g, '').slice(-11)
+        console.log('[webhook] phone via lid_jid exato:', phoneNumber)
+      } else {
+        // Fallback: lid_jid está em @s.whatsapp.net → atualizar para @lid
+        const fallback = (allTestNums ?? []).find((n: { phone: string; lid_jid: string | null }) =>
+          n.lid_jid?.includes('@s.whatsapp.net')
+        )
+        if (fallback) {
+          phoneNumber = String(fallback.phone).replace(/\D/g, '').slice(-11)
+          console.log('[webhook] phone via fallback @s.whatsapp.net:', phoneNumber, '— atualizando lid_jid para:', remoteJid)
+          supabase.from('test_numbers').update({ lid_jid: remoteJid }).eq('phone', fallback.phone).then(() => {})
+        } else {
+          console.log('[webhook] @lid sem match em test_numbers:', remoteJid)
+          return
+        }
       }
+    } else {
+      console.log('[webhook] formato desconhecido — remoteJid:', remoteJid)
+      return
+    }
+
+    if (!phoneNumber) {
+      console.log('[webhook] phoneNumber vazio')
+      return
+    }
+
+    // ── Buscar leads e test_numbers em paralelo ────────────────────────────
+    const [leadsRes, testNumsRes] = await Promise.all([
+      supabase.from('leads').select('id, company_name, phone, outreach_status').not('phone', 'is', null),
+      supabase.from('test_numbers').select('id, phone').not('phone', 'is', null),
+    ])
+
+    const lead = (leadsRes.data ?? []).find((l) =>
+      String(l.phone ?? '').replace(/\D/g, '').slice(-11) === phoneNumber
+    )
+    const matchedTest = (testNumsRes.data ?? []).find((n: { phone: string }) =>
+      String(n.phone ?? '').replace(/\D/g, '').slice(-11) === phoneNumber
+    )
+
+    console.log('[webhook] lead:', lead?.id ?? 'não encontrado', '| test_number:', matchedTest ? 'SIM' : 'NÃO')
+
+    if (matchedTest) {
+      const { error: insertErr } = await supabase.from('test_messages').insert({
+        phone:     phoneNumber,
+        direction: 'inbound',
+        content:   text,
+      })
+      console.log('[webhook] test_messages insert error:', insertErr)
     }
 
   } catch (err) {
@@ -181,7 +124,7 @@ async function processIncoming(body: Record<string, unknown>) {
 
 // POST /api/webhook/whatsapp
 export async function POST(req: NextRequest) {
-  console.log('[webhook] INICIO - recebido request')
+  console.log('[webhook] INICIO')
 
   let body: Record<string, unknown>
   try {

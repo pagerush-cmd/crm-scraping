@@ -574,7 +574,7 @@ function TestNumberChat({ contact, onClose }: { contact: TestNumber; onClose: ()
 
   useEffect(() => {
     fetchMessages()
-    intervalRef.current = setInterval(fetchMessages, 2000)
+    intervalRef.current = setInterval(fetchMessages, 1000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contact.phone])
